@@ -1,0 +1,10 @@
+﻿data/
+checkpoints/
+wandb/
+runs/
+__pycache__/
+*.pt
+*.onnx
+*.zip
+.venv/
+.ipynb_checkpoints/
