@@ -42,7 +42,7 @@ class StereoSGBMWrapper:
     def reset(self):
         self._cur_idx = 0
 
-    def predict(self, images):
+    def predict(self, images, stems=None):
         """images: Tensor of shape (B, 3, 384, 640) in [0, 1] or numpy array."""
         if isinstance(images, torch.Tensor):
             b = images.shape[0]
@@ -55,8 +55,11 @@ class StereoSGBMWrapper:
 
         depths = []
         for i in range(b):
-            idx = (self._cur_idx + i) % len(self.stems)
-            stem = self.stems[idx]
+            if stems is not None and i < len(stems):
+                stem = stems[i]
+            else:
+                idx = (self._cur_idx + i) % len(self.stems)
+                stem = self.stems[idx]
 
             left_img = imgs_bgr[i]
             right_path = os.path.join(self.dataset_root, "images_right", self.split, stem + ".jpg")
@@ -64,10 +67,15 @@ class StereoSGBMWrapper:
 
             right_img = cv2.imread(right_path)
             fb = 384.38  # standard KITTI baseline * focal length fallback
+            scale = 640.0 / 1242.0
             if os.path.exists(calib_path):
                 with open(calib_path) as f:
                     calib = json.load(f)
                     fb = calib.get("fb", fb)
+                    scale = calib.get("scale", scale)
+
+            # Scale focal length by the letterbox resize factor
+            fb_scaled = fb * scale
 
             if right_img is not None:
                 gray_l = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
@@ -75,7 +83,7 @@ class StereoSGBMWrapper:
                 disp = self.matcher.compute(gray_l, gray_r).astype(np.float32) / 16.0
                 valid = disp > 0.0
                 d_pred = np.zeros((IMG_H, IMG_W), dtype=np.float32)
-                d_pred[valid] = np.clip(fb / disp[valid], 0.0, DEPTH_MAX_M)
+                d_pred[valid] = np.clip(fb_scaled / disp[valid], 0.0, DEPTH_MAX_M)
             else:
                 d_pred = np.zeros((IMG_H, IMG_W), dtype=np.float32)
 

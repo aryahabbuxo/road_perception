@@ -57,6 +57,9 @@ def compute_depth_metrics(preds, gts):
 
 def evaluate_depth(model, data_root="data_processed/kitti", split="test", batch_size=4):
     """Evaluates any model with predict(images) on the depth task."""
+    if hasattr(model, "reset"):
+        model.reset()
+
     ds = MultiTaskDataset(data_root, split)
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
@@ -66,8 +69,12 @@ def evaluate_depth(model, data_root="data_processed/kitti", split="test", batch_
     for batch in loader:
         gts = batch["depth"].numpy()
         imgs = batch["img"]
+        stems = batch.get("stem")
         # Model returns dict with 'depth'
-        res = model.predict(imgs)
+        try:
+            res = model.predict(imgs, stems=stems)
+        except TypeError:
+            res = model.predict(imgs)
         pred_depth = res.get("depth")
         if pred_depth is None:
             return {}
