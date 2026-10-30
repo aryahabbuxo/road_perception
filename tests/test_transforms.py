@@ -82,7 +82,12 @@ def test_augment_horizontal_flip():
 
 
 def test_augment_with_dataset():
-    """Verify MultiTaskDataset works with MultitaskAugmentor and follows contract."""
+    """Verify MultiTaskDataset works with MultitaskAugmentor and follows contract.
+    Skipped automatically on machines where data_processed/speedbump is absent."""
+    import os
+    if not os.path.exists("data_processed/speedbump/splits.json"):
+        pytest.skip("data_processed/speedbump not found – run the speedbump converter first")
+
     from datasets.contract import check_sample
     from datasets.multitask_dataset import MultiTaskDataset
     from datasets.transforms import MultitaskAugmentor
@@ -92,4 +97,3 @@ def test_augment_with_dataset():
     for i in range(min(5, len(ds))):
         s = ds[i]
         check_sample(s)
-
