@@ -14,7 +14,7 @@ Everything from the Person B scope is complete and on `main`. Here's what exists
 
 ### 1. Dataset Converters — All 5 Datasets Ready
 
-All converters live in `datasets/converters/`. Every dataset follows the shared contract (`datasets/contract.py`): images at `data_processed/<name>/images/<split>/<stem>.jpg`, detection labels at `labels_det/<split>/<stem>.txt` (YOLO format, normalised cx cy w h), segmentation masks at `labels_seg/<split>/<stem>.png` (uint8, 0=bg 255=ignore 1=road), depth maps at `depth/<split>/<stem>.png` (uint16, metres×256).
+All converters live in `datasets/converters/`. Every dataset follows the shared contract (`datasets/contract.py`): images at `data_processed/<name>/images/<split>/<stem>.jpg`, detection labels at `labels_det/<split>/<stem>.txt` (YOLO format, normalised cx cy w h), segmentation masks at `masks/<split>/<stem>.png` (uint8, 0=bg 255=ignore 1=road), depth maps at `depth/<split>/<stem>.png` (uint16, metres×256).
 
 | Dataset | Converter | Images | Task | Notes |
 |---------|-----------|--------|------|-------|
@@ -22,7 +22,7 @@ All converters live in `datasets/converters/`. Every dataset follows the shared 
 | **rdd** | `converters/rdd.py` | 2,412 | Detection | Class 0=pothole, India+Japan subset |
 | **idd** | `converters/idd.py` | ~800 | Segmentation | Road mask only (class 1), sequence-split |
 | **kitti** | `converters/kitti.py` | 200 stereo pairs | Depth | Right images + calib JSONs stored |
-| **bdd** | `converters/bdd.py` | 3,430 | Detection + Seg | Classes 2–7 (car/truck/bus/person/bike/motor), 3,430 road masks |
+| **bdd** | `converters/bdd.py` | 3,430 | Detection + Seg | Classes 2=car, 3=two-wheeler, 4=bus/truck, 5=person, 6=traffic light, 7=traffic sign; 3,430 road masks |
 
 **Data on your laptop (Person A):** Everything is in `data_processed/` — it's git-ignored so it won't be in the repo.
 
@@ -56,8 +56,8 @@ ds = MultiTaskDataset("data_processed/speedbump", "train", transform=MultitaskAu
 loader = DataLoader(ds, batch_size=16, shuffle=True, collate_fn=collate_fn)
 
 for batch in loader:
-    imgs   = batch["img"]        # (B, 3, 384, 640) float32 [0,1]
-    boxes  = batch["boxes"]      # list of (N,5) tensors [class, cx, cy, w, h]
+    imgs      = batch["img"]          # (B, 3, 384, 640) float32 [0,1]
+    targets   = batch["det_targets"]  # (M, 6) [batch_idx, class, cx, cy, w, h]
     masks  = batch["seg_mask"]   # (B, 384, 640) uint8
     depths = batch["depth"]      # (B, 384, 640) float32 metres
 ```
@@ -206,11 +206,11 @@ The converter is done; the data is ready locally. Just needs a sharing mechanism
 | 0 | pothole | speedbump, rdd |
 | 1 | speedbump | speedbump |
 | 2 | car | bdd |
-| 3 | truck | bdd |
-| 4 | bus | bdd |
-| 5 | person | bdd |
-| 6 | bike | bdd |
-| 7 | motor | bdd |
+| 3 | two-wheeler (bicycle, bike, motor) | bdd |
+| 4 | bus / truck / train | bdd |
+| 5 | person / pedestrian / rider | bdd |
+| 6 | traffic light | bdd |
+| 7 | traffic sign | bdd |
 | road (seg) | — | idd, bdd |
 | depth | — | kitti |
 
