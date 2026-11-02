@@ -53,3 +53,12 @@ def test_yolo_baseline_output():
     model = YoloBaseline("yolo11n.pt", device="cpu")
     check_prediction(model.predict(batch["img"]), batch_size=2)
     
+
+def test_seg_baseline_output():
+    from models.wrappers import SegBaseline
+
+    batch = next(iter(DataLoader(FakeDataset(), batch_size=2, collate_fn=collate_fn)))
+    model = SegBaseline(device="cpu")   # untrained, no download needed
+    pred = model.predict(batch["img"])
+    check_prediction(pred, batch_size=2)
+    assert pred["seg"].dtype == torch.int64

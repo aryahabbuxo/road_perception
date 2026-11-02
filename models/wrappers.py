@@ -36,3 +36,30 @@ class YoloBaseline(ModelWrapper):
             else:
                 boxes.append(torch.zeros((0, 6)))
         return {"boxes": boxes, "seg": None, "depth": None}
+
+
+class SegBaseline(ModelWrapper):
+    """SegFormer road baseline. checkpoint=None gives an untrained model (for tests)."""
+    tasks = ("seg",)
+
+    def __init__(self, checkpoint=None, device=None):
+        from models.segformer_baseline import SegFormerRoad
+
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        backbone = "nvidia/mit-b0"
+        state = None
+        if checkpoint is not None:
+            ckpt = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            backbone = ckpt["config"]["model"]
+            state = ckpt["model"]
+        self.model = SegFormerRoad(backbone, pretrained=False)
+        if state is not None:
+            self.model.load_state_dict(state)
+        self.model.to(self.device).eval()
+
+    @torch.no_grad()
+    def predict(self, img):
+        logits = self.model(img.to(self.device))
+        seg = logits.argmax(1).cpu()
+        boxes = [torch.zeros((0, 6)) for _ in range(img.shape[0])]
+        return {"boxes": boxes, "seg": seg, "depth": None}
