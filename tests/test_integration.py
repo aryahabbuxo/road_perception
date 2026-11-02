@@ -62,3 +62,30 @@ def test_seg_baseline_output():
     pred = model.predict(batch["img"])
     check_prediction(pred, batch_size=2)
     assert pred["seg"].dtype == torch.int64
+
+
+def test_multitask_output():
+    from models.wrappers import MultiTaskWrapper
+
+    batch = next(iter(DataLoader(FakeDataset(), batch_size=2, collate_fn=collate_fn)))
+    model = MultiTaskWrapper(device="cpu")   # untrained, no download needed
+    pred = model.predict(batch["img"])
+    check_prediction(pred, batch_size=2)
+    assert pred["seg"] is not None and pred["depth"] is not None
+    assert pred["depth"].min() >= 0 and pred["depth"].max() <= 80
+
+
+def test_multitask_loss_skips_missing_labels():
+    from losses.multitask_loss import MultiTaskLoss
+    from models.multitask import MultiTaskNet
+
+    model = MultiTaskNet(pretrained=False).train()
+    criterion = MultiTaskLoss(model)
+    batch = next(iter(DataLoader(FakeDataset(), batch_size=2, collate_fn=collate_fn)))
+    batch["has_seg"][:] = False          # pretend this batch has no road masks
+    total, parts = criterion(model(batch["img"]), batch)
+    total.backward()
+    assert parts["seg"] is None and parts["det"] is not None and parts["depth"] is not None
+    assert torch.isfinite(total)
+    assert all(p.grad is None or p.grad.abs().sum() == 0 for p in model.seg_head.parameters())
+    assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.depth_head.parameters())

@@ -63,3 +63,33 @@ class SegBaseline(ModelWrapper):
         seg = logits.argmax(1).cpu()
         boxes = [torch.zeros((0, 6)) for _ in range(img.shape[0])]
         return {"boxes": boxes, "seg": seg, "depth": None}
+
+
+class MultiTaskWrapper(ModelWrapper):
+    """The combined model. checkpoint=None gives an untrained model (for tests)."""
+
+    def __init__(self, checkpoint=None, device=None, conf=0.25, iou=0.7):
+        from models.multitask import MultiTaskNet
+
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.conf, self.iou = conf, iou
+        tasks, state = ("det", "seg", "depth"), None
+        if checkpoint is not None:
+            ckpt = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            tasks, state = tuple(ckpt["config"]["tasks"]), ckpt["model"]
+        self.model = MultiTaskNet(pretrained=False, tasks=tasks)
+        if state is not None:
+            self.model.load_state_dict(state)
+        self.model.to(self.device).eval()
+        self.tasks = tasks
+
+    @torch.no_grad()
+    def predict(self, img):
+        from ultralytics.utils.nms import non_max_suppression
+
+        out = self.model(img.to(self.device))
+        dets = non_max_suppression(out["det"][0], conf_thres=self.conf, iou_thres=self.iou)
+        boxes = [d[:, :6].float().cpu() for d in dets]
+        seg = out["seg"].argmax(1).cpu() if out["seg"] is not None else None
+        depth = out["depth"][:, 0].float().cpu() if out["depth"] is not None else None
+        return {"boxes": boxes, "seg": seg, "depth": depth}
