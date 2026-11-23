@@ -1,10 +1,13 @@
-run_name: 20261102_multitask_uncertainty
+run_name: 20261103_multitask_main
 data_root: /content/data
-datasets: [speedbump, rdd, bdd, idd]
-tasks: [det, seg, depth]
+# streetsurface and rtk: road-surface datasets from Person B (surface labels only)
+datasets: [speedbump, rdd, bdd, idd, streetsurface, rtk]
+tasks: [det, seg, depth, surface, lean]
 loss_weighting: uncertainty
+p_lean: 0.5          # share of images tilted to teach the lean head
+p_vibration: 0.5     # share of images given handlebar shake + blur (Person B's augmentation)
 pretrained: yolo11s.pt
-epochs: 60
+epochs: 40
 batch: 16
 lr_body: 0.0001
 lr_heads: 0.001

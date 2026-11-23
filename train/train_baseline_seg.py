@@ -26,10 +26,19 @@ from train.config import load_config
 
 class RoadAugment:
     """Person B's augmentor, plus a fix for a key-name mismatch: the augmentor returns
-    the road mask as 'seg_mask' but MultiTaskDataset reads it back as 'mask'."""
+    the road mask as 'seg_mask' but MultiTaskDataset reads it back as 'mask'.
+    p_vibration > 0 turns on Person B's handlebar-vibration augmentation."""
 
-    def __init__(self):
-        self.aug = MultitaskAugmentor()
+    def __init__(self, p_vibration=0.0):
+        if p_vibration > 0:
+            try:
+                self.aug = MultitaskAugmentor(p_vibration=p_vibration)
+            except TypeError:
+                raise SystemExit("Not starting: Person B's vibration augmentation (p_vibration) "
+                                 "is not in datasets/transforms.py yet. For quick tests only, "
+                                 "add --p-vibration 0.")
+        else:
+            self.aug = MultitaskAugmentor()
 
     def __call__(self, sample):
         out = self.aug(sample)

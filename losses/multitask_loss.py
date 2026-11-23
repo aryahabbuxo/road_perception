@@ -1,8 +1,9 @@
 """Combined loss for the multi-task model.
 
 Each task's loss uses only the images that have labels for it (has_det / has_seg /
-has_depth). A task with no labelled images in the batch is skipped, so it adds
-nothing and its head gets no gradient from that batch.
+has_depth, surface >= 0, and a lean target when the batch was tilted). A task with no
+labelled images in the batch is skipped, so it adds nothing and its head gets no
+gradient from that batch.
 
 Weighting between tasks (config "loss_weighting"):
   "uncertainty": learned weights (Kendall et al., 2018):
@@ -14,9 +15,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ultralytics.utils.loss import v8DetectionLoss
 
-from datasets.contract import SEG_IGNORE
+from datasets.contract import MAX_LEAN_DEG, SEG_IGNORE
 
-TASKS = ("det", "seg", "depth")
+TASKS = ("det", "seg", "depth", "surface", "lean")
 
 
 def seg_loss(logits, gt):
@@ -76,6 +77,14 @@ class MultiTaskLoss(nn.Module):
             keep = batch["has_depth"].to(device)
             if keep.any():
                 parts["depth"] = silog_loss(out["depth"][keep, 0], batch["depth"][keep])
+        if "surface" in self.tasks and "surface" in batch:
+            keep = batch["surface"].to(device) >= 0
+            if keep.any():
+                parts["surface"] = F.cross_entropy(out["surface"][keep].float(), batch["surface"][keep])
+        if "lean" in self.tasks and "lean" in batch:      # self-supervised: the tilt we applied
+            parts["lean"] = F.smooth_l1_loss(out["lean"].float() / MAX_LEAN_DEG,
+                                             batch["lean"].to(device).float() / MAX_LEAN_DEG,
+                                             beta=0.1)
 
         total = torch.zeros((), device=device)
         for i, t in enumerate(TASKS):

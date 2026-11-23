@@ -1,18 +1,23 @@
-"""Train the combined model (detection + road + distance) across all datasets.
+"""Train the combined model (objects + road + distance + surface type + lean) on all datasets.
 
-Each batch comes from one dataset (Person B's MultitaskBatchSampler), and each task's
-loss uses only the images that have that label. Saves to <project>/<run_name>/:
+Each batch comes from one dataset (Person B's MultitaskBatchSampler), and each task's loss
+uses only the images that have that label. Lean needs no labels: half of every batch is
+tilted by a random angle and the model learns to tell the angle (train/lean_aug.py).
+Saves to <project>/<run_name>/:
   last.pt      full training state, written every epoch (used to resume)
   best.pt      best model by validation score, in the Rule 6 format
   history.csv  per-epoch losses, learned task weights and validation metrics
 Rerunning the same command resumes an unfinished run, and does nothing for a finished one.
 
 Comparison versions (Stage 3) only change settings, e.g.:
-  --run-name <name> --loss-weighting equal
-  --run-name <name> --tasks det seg
+  --run-name <name> --loss-weighting equal        (fixed equal task weights)
+  --run-name <name> --tasks det seg surface lean  (no distance head)
+  --run-name <name> --tasks det seg depth surface (no lean head, no tilting)
+  --run-name <name> --p-vibration 0               (no vibration augmentation)
 """
 import argparse
 import csv
+import json
 import math
 import os
 import random
@@ -22,14 +27,38 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from datasets.contract import DEPTH_MAX_M, IMG_H, IMG_W, NUM_DET_CLASSES, SEG_IGNORE, collate_fn
+from datasets.contract import (DEPTH_MAX_M, IMG_H, IMG_W, MAX_LEAN_DEG, REPORTED_DET_CLASSES,
+                               SEG_IGNORE, SURFACE_UNKNOWN, collate_fn)
 from datasets.multitask_dataset import MultiTaskDataset
 from datasets.samplers import ConcatMultiTaskDataset
 from eval.eval_det import compute_class_ap
 from losses.multitask_loss import TASKS, MultiTaskLoss
 from models.multitask import MultiTaskNet
 from train.config import load_config
+from train.lean_aug import apply_lean, fixed_lean_angles, random_lean
 from train.train_baseline_seg import RoadAugment   # augmentor + fix for the mask key mismatch
+
+
+class WithSurfaceLabels(torch.utils.data.Dataset):
+    """Adds the surface label from <dataset>/surface.json when the loader hasn't set one.
+    Keeps working unchanged once MultiTaskDataset reads surface.json itself."""
+
+    def __init__(self, ds):
+        self.ds = ds
+        path = os.path.join(ds.root, "surface.json")
+        self.labels = json.load(open(path)) if os.path.exists(path) else {}
+        self.has_surface = bool(self.labels)
+        for attr in ("root", "name", "has_det", "has_seg", "has_depth", "stems"):
+            setattr(self, attr, getattr(ds, attr))
+
+    def __len__(self):
+        return len(self.ds)
+
+    def __getitem__(self, i):
+        s = self.ds[i]
+        if int(s.get("surface", torch.tensor(SURFACE_UNKNOWN))) < 0 and self.labels:
+            s["surface"] = torch.tensor(int(self.labels.get(s["stem"], SURFACE_UNKNOWN)))
+        return s
 
 
 def git_commit():
@@ -45,22 +74,26 @@ def to_device(batch, device):
 
 
 @torch.no_grad()
-def evaluate(model, loaders, device, conf=0.001, iou=0.7):
-    """mAP50 (detection), mIoU (road) and AbsRel (distance) on the validation splits."""
+def evaluate(model, loaders, device, conf=0.001, iou=0.7, lean_batches=2):
+    """Validation: mAP50 over the reported classes, road mIoU, distance AbsRel,
+    surface accuracy, and lean error on tilted copies of a few batches."""
     from ultralytics.utils.nms import non_max_suppression
 
     model.eval()
     dets, gts = {}, {}
     inter, union = torch.zeros(2, dtype=torch.float64), torch.zeros(2, dtype=torch.float64)
     rel_sum, rel_n = 0.0, 0
+    surf_ok, surf_n = 0, 0
+    lean_err = []
     img_id = 0
+    amp = dict(device_type=device.type, enabled=device.type == "cuda")
     for loader in loaders.values():
-        for batch in loader:
+        for bi, batch in enumerate(loader):
             batch = to_device(batch, device)
-            with torch.autocast(device_type=device.type, enabled=device.type == "cuda"):
+            with torch.autocast(**amp):
                 out = model(batch["img"])
             b = batch["img"].shape[0]
-            if out["det"] is not None and batch["has_det"].any():
+            if batch["has_det"].any():
                 preds = non_max_suppression(out["det"][0].float(), conf_thres=conf, iou_thres=iou)
                 t = batch["det_targets"].cpu().numpy()
                 for i in range(b):
@@ -87,19 +120,36 @@ def evaluate(model, loaders, device, conf=0.001, iou=0.7):
                 valid = (gt > 0) & (gt <= DEPTH_MAX_M)
                 rel_sum += ((pred[valid] - gt[valid]).abs() / gt[valid]).sum().item()
                 rel_n += int(valid.sum().item())
+            if out["surface"] is not None:
+                keep = batch["surface"] >= 0
+                if keep.any():
+                    surf_ok += (out["surface"][keep].argmax(1) == batch["surface"][keep]).sum().item()
+                    surf_n += int(keep.sum().item())
+            if out["lean"] is not None and bi < lean_batches:
+                angles = fixed_lean_angles(b, MAX_LEAN_DEG)
+                tilted = apply_lean(batch, angles)
+                with torch.autocast(**amp):
+                    lean = model(tilted["img"])["lean"].float()
+                lean_err += (lean.cpu() - angles).abs().tolist()
             img_id += b
 
     metrics = {}
     if gts:
-        aps = [compute_class_ap(dets.get(c, []), gts[c]) for c in range(NUM_DET_CLASSES) if c in gts]
+        aps = [compute_class_ap(dets.get(c, []), gts[c]) for c in REPORTED_DET_CLASSES if c in gts]
         metrics["mAP50"] = float(np.nanmean(aps))
     if union.sum() > 0:
         metrics["mIoU"] = (inter / union.clamp(min=1)).mean().item()
     if rel_n > 0:
         metrics["depth_absrel"] = rel_sum / rel_n
-    parts = [metrics.get("mAP50"), metrics.get("mIoU")]
+    if surf_n > 0:
+        metrics["surface_acc"] = surf_ok / surf_n
+    if lean_err:
+        metrics["lean_mae_deg"] = float(np.mean(lean_err))
+    parts = [metrics.get("mAP50"), metrics.get("mIoU"), metrics.get("surface_acc")]
     if "depth_absrel" in metrics:
         parts.append(max(0.0, 1.0 - metrics["depth_absrel"]))
+    if "lean_mae_deg" in metrics:
+        parts.append(max(0.0, 1.0 - metrics["lean_mae_deg"] / 10.0))
     parts = [p for p in parts if p is not None]
     metrics["score"] = float(np.mean(parts)) if parts else 0.0
     return metrics
@@ -113,18 +163,19 @@ def main():
     p.add_argument("--run-name", default=None)
     p.add_argument("--tasks", nargs="+", default=None, choices=TASKS)
     p.add_argument("--loss-weighting", default=None, choices=["uncertainty", "equal"])
+    p.add_argument("--p-vibration", type=float, default=None)
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--batch", type=int, default=None)
     p.add_argument("--workers", type=int, default=None)
     p.add_argument("--limit-batches", type=int, default=None,
                    help="train on only this many batches per epoch (quick tests)")
-    p.add_argument("--allow-missing-depth", action="store_true",
-                   help="start even if no training dataset has distance labels yet")
+    p.add_argument("--allow-missing-labels", "--allow-missing-depth", action="store_true",
+                   help="quick tests only: start even if datasets or labels are missing")
     args = p.parse_args()
     cfg = load_config(args.config, project=args.project, data_root=args.data_root,
                       run_name=args.run_name, tasks=args.tasks,
-                      loss_weighting=args.loss_weighting, epochs=args.epochs, batch=args.batch,
-                      workers=args.workers)
+                      loss_weighting=args.loss_weighting, p_vibration=args.p_vibration,
+                      epochs=args.epochs, batch=args.batch, workers=args.workers)
 
     run_dir = os.path.join(os.path.abspath(cfg["project"]), cfg["run_name"])
     os.makedirs(run_dir, exist_ok=True)
@@ -134,26 +185,40 @@ def main():
     random.seed(cfg["seed"])
     np.random.seed(cfg["seed"])
     torch.manual_seed(cfg["seed"])
+    gen = torch.Generator().manual_seed(cfg["seed"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Data: one MultiTaskDataset per dataset; each batch comes from a single dataset
-    train_sets = {n: MultiTaskDataset(os.path.join(cfg["data_root"], n), "train",
-                                      transform=RoadAugment()) for n in cfg["datasets"]}
+    # ---- Data: refuse to start a full run with anything missing ----
+    problems, names = [], []
+    for n in cfg["datasets"]:
+        if os.path.exists(os.path.join(cfg["data_root"], n, "splits.json")):
+            names.append(n)
+        else:
+            problems.append(f"dataset '{n}' not found in {cfg['data_root']}")
+    aug = RoadAugment(p_vibration=cfg.get("p_vibration", 0.0))
+    train_sets = {n: WithSurfaceLabels(MultiTaskDataset(os.path.join(cfg["data_root"], n),
+                                                        "train", transform=aug)) for n in names}
     if "depth" in cfg["tasks"] and not any(ds.has_depth for ds in train_sets.values()):
-        if not args.allow_missing_depth:
-            raise SystemExit("No training dataset has distance labels (depth/ folder) yet. "
-                             "Wait for Person B's Depth Anything labels before full training.")
-        print("WARNING: no distance labels found; the distance head will not learn in this run.")
+        problems.append("no dataset has distance labels (depth/ folder)")
+    if "surface" in cfg["tasks"] and not any(ds.has_surface for ds in train_sets.values()):
+        problems.append("no dataset has surface labels (surface.json)")
+    if problems:
+        msg = "; ".join(problems)
+        if not args.allow_missing_labels:
+            raise SystemExit(f"Not starting: {msg}. Wait for Person B's data before full training.")
+        print(f"WARNING (quick test only): {msg}. Those parts will not learn in this run.")
+
     concat = ConcatMultiTaskDataset(train_sets)
     train_loader = DataLoader(concat, batch_sampler=concat.make_sampler(cfg["batch"]),
                               num_workers=cfg["workers"], collate_fn=collate_fn,
                               pin_memory=device.type == "cuda")
-    val_loaders = {n: DataLoader(MultiTaskDataset(os.path.join(cfg["data_root"], n), "val"),
-                                 batch_size=cfg["batch"], num_workers=cfg["workers"],
-                                 collate_fn=collate_fn)
-                   for n in cfg["datasets"]}
+    val_loaders = {n: DataLoader(WithSurfaceLabels(MultiTaskDataset(
+                       os.path.join(cfg["data_root"], n), "val")),
+                       batch_size=cfg["batch"], num_workers=cfg["workers"], collate_fn=collate_fn)
+                   for n in names}
     for n, ds in train_sets.items():
-        print(f"  {n}: {len(ds)} train images | det={ds.has_det} seg={ds.has_seg} depth={ds.has_depth}")
+        print(f"  {n}: {len(ds)} train images | det={ds.has_det} seg={ds.has_seg} "
+              f"depth={ds.has_depth} surface={ds.has_surface}")
 
     steps_per_epoch = len(train_loader)
     if args.limit_batches:
@@ -192,8 +257,9 @@ def main():
         print(f"Found unfinished run. Resuming from epoch {start_epoch + 1}")
     else:
         print(f"Starting new run: {cfg['run_name']}  tasks={cfg['tasks']}  "
-              f"weighting={cfg['loss_weighting']}")
+              f"weighting={cfg['loss_weighting']}  p_vibration={cfg.get('p_vibration', 0.0)}")
 
+    use_lean = "lean" in cfg["tasks"]
     for epoch in range(start_epoch, cfg["epochs"]):
         model.train()
         sums = {t: 0.0 for t in TASKS}
@@ -202,6 +268,8 @@ def main():
             if step >= steps_per_epoch:
                 break
             batch = to_device(batch, device)
+            if use_lean:
+                batch = random_lean(batch, p=cfg["p_lean"], max_deg=MAX_LEAN_DEG, generator=gen)
             with torch.autocast(device_type=device.type, enabled=device.type == "cuda"):
                 out = model(batch["img"])
             loss, parts = criterion(out, batch)
@@ -224,17 +292,18 @@ def main():
         sigma = {t: float(torch.exp(0.5 * criterion.log_vars[i]).item()) for i, t in enumerate(TASKS)}
         metrics = evaluate(model, val_loaders, device)
         fmt = lambda v: "-" if v is None else f"{v:.4f}"
-        print(f"Epoch {epoch + 1}/{cfg['epochs']}  loss det {fmt(avg['det'])} "
-              f"seg {fmt(avg['seg'])} depth {fmt(avg['depth'])} | "
-              f"val mAP50 {fmt(metrics.get('mAP50'))} mIoU {fmt(metrics.get('mIoU'))} "
-              f"AbsRel {fmt(metrics.get('depth_absrel'))} score {metrics['score']:.4f}")
+        print(f"Epoch {epoch + 1}/{cfg['epochs']}  loss "
+              + " ".join(f"{t} {fmt(avg[t])}" for t in TASKS) + " | val "
+              + f"mAP50 {fmt(metrics.get('mAP50'))} mIoU {fmt(metrics.get('mIoU'))} "
+              + f"AbsRel {fmt(metrics.get('depth_absrel'))} surface {fmt(metrics.get('surface_acc'))} "
+              + f"lean_err {fmt(metrics.get('lean_mae_deg'))} | score {metrics['score']:.4f}")
 
         row = {"epoch": epoch + 1,
                **{f"loss_{t}": fmt(avg[t]) for t in TASKS},
                **{f"sigma_{t}": f"{sigma[t]:.4f}" for t in TASKS},
                "lr_body": f"{opt.param_groups[0]['lr']:.2e}",
                **{k: f"{metrics[k]:.5f}" if k in metrics else "-"
-                  for k in ("mAP50", "mIoU", "depth_absrel", "score")}}
+                  for k in ("mAP50", "mIoU", "depth_absrel", "surface_acc", "lean_mae_deg", "score")}}
         new_file = not os.path.exists(hist_path)
         with open(hist_path, "a", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(row))
