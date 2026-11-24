@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Saarth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Roboto+Serif:opsz,wdth,wght@8..144,50..150,100..900&display=swap">
+<style>
+/* Layout: night-drive HUD. Camera view with neon overlays on the left; instrument cards (map, rider, alerts, CAN) on the right; stacks on phones. Single dark look by design. */
+:root {
+  color-scheme: dark;
+  --bg: #05090f;
+  --panel: #0a111b;
+  --panel-2: #0e1724;
+  --line: #1a2738;
+  --fg: #d9e5f2;
+  --muted: #7b8fa6;
+  --road: #46ffa8;
+  --cyan: #45dcff;
+  --amber: #ffb52e;
+  --red: #ff4d5e;
+  --font-display: 'Roboto Serif', 'Rockwell', Georgia, serif;   /* set extra-wide: closest loadable match to Sreda */
+  --font-body: 'Roboto Serif', Georgia, serif;
+  --wide: 150%;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--fg); }
+body {
+  font-family: var(--font-body);
+  font-stretch: 112%;
+  font-size: 14px;
+  line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 28px;
+}
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 12px; max-width: 1440px; margin: 0 auto 14px;
+}
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand svg { flex: none; }
+.brand h1 { font-stretch: var(--wide);
+  margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 24px;
+  letter-spacing: 0.1em; text-transform: uppercase; line-height: 1;
+}
+.brand p { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; letter-spacing: 0.02em; }
+.sample-pill {
+  font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--amber); border: 1px solid color-mix(in srgb, var(--amber) 55%, transparent);
+  background: transparent; padding: 6px 10px; border-radius: 0;
+}
+.source { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.source select {
+  font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 0; padding: 6px 8px; max-width: 70vw;
+}
+.source select:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.sample-pill.live { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 55%, transparent); }
+.src-video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.seek { display: flex; align-items: center; gap: 10px; flex: 1 1 260px; min-width: 0; }
+.seek[hidden] { display: none; }
+.seek input[type=range] { flex: 1; width: auto; max-width: none; min-width: 80px; }
+.seek output { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px;
+  max-width: 1440px; margin: 0 auto; align-items: start;
+}
+@media (max-width: 1040px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.stage { min-width: 0; display: grid; gap: 12px; }
+.viewport {
+  position: relative; width: 100%; max-width: 100%; aspect-ratio: 5 / 3;
+  border: 1px solid var(--line); border-radius: 0; overflow: hidden; background: #000;
+}
+.viewport canvas { display: block; width: 100%; height: 100%; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 12px 14px;
+}
+.btn { font-stretch: var(--wide);
+  font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--bg); background: var(--cyan); border: 0;
+  border-radius: 0; padding: 9px 16px; cursor: pointer; min-width: 96px;
+}
+.btn:focus-visible, .chip input:focus-visible + span, input[type=range]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.speed { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.speed label, .layers-label { font-stretch: var(--wide);
+  font-family: var(--font-display); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+}
+.speed output { font-family: var(--font-mono); font-size: 13px; min-width: 64px; font-variant-numeric: tabular-nums; }
+input[type=range] { accent-color: var(--cyan); width: 150px; max-width: 40vw; }
+.layers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chip { position: relative; cursor: pointer; }
+.chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.chip span {
+  display: inline-block; font-size: 12.5px; padding: 5px 10px; border-radius: 0;
+  border: 1px solid var(--line); color: var(--muted); background: transparent;
+}
+.chip input:checked + span { color: var(--cyan); border-color: var(--cyan); background: transparent; }
+.note { margin: 0; color: var(--muted); font-size: 12.5px; max-width: 75ch; }
+.side { display: grid; gap: 12px; min-width: 0; }
+.card { background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 12px 14px 14px; min-width: 0; }
+.card h2 { font-stretch: var(--wide);
+  margin: 0 0 10px; font-family: var(--font-display); font-weight: 600; font-size: 12.5px;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+  display: flex; justify-content: space-between; gap: 8px;
+}
+.card h2 small { font-family: var(--font-mono); letter-spacing: 0.04em; text-transform: none; font-size: 11px; }
+.map-canvas { display: block; width: 100%; aspect-ratio: 1 / 1; max-width: 100%; }
+.rider { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 12px; align-items: center; }
+.lean-canvas { display: block; width: 132px; height: 92px; }
+.readouts { display: grid; gap: 8px; min-width: 0; }
+.ro { display: grid; gap: 1px; }
+.ro .k { font-stretch: var(--wide); font-family: var(--font-display); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.ro .v { font-family: var(--font-mono); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ro .v.cyan { color: var(--cyan); }
+.ro .v.green { color: var(--road); }
+.alerts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; align-content: start; min-height: 96px; }
+.alerts li {
+  display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 8px 10px 8px 0; overflow: hidden;
+}
+.alerts li::before { content: ""; align-self: stretch; background: var(--sev, var(--amber)); }
+.alerts .what { font-weight: 600; font-size: 13.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alerts .when { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.alerts .empty { color: var(--muted); font-size: 13px; padding: 8px 0; display: block; background: none; }
+.alerts .empty::before { display: none; }
+.can {
+  margin: 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.6; color: var(--muted);
+  height: 15.2em; overflow: hidden; white-space: pre; overflow-x: auto;
+  font-variant-numeric: tabular-nums;
+}
+.can .id { color: var(--cyan); }
+.can .data { color: var(--fg); }
+.can .dec { color: var(--road); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <svg width="38" height="38" viewBox="0 0 38 38" aria-hidden="true">
+      <circle cx="19" cy="19" r="17" fill="none" stroke="#45dcff" stroke-width="1.5" opacity="0.5"/>
+      <circle cx="19" cy="19" r="10" fill="none" stroke="#ffb52e" stroke-width="2"/>
+      <path d="M8 27 L19 9 L30 27" fill="none" stroke="#46ffa8" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <h1>Saarth</h1>
+      <p>Two-wheeler road perception · one camera · CAN output</p>
+    </div>
+  </div>
+  <div class="source">
+    <label class="layers-label" for="source">Source</label>
+    <select id="source"><option value="">Sample scene</option></select>
+    <span class="sample-pill" id="pill">Sample scene · simulated data</span>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="stage" aria-label="Camera view">
+    <div class="viewport"><video id="video" class="src-video" muted playsinline preload="auto"></video><canvas id="scene" aria-label="Rider's camera view with detection overlays"></canvas></div>
+    <div class="controls">
+      <button class="btn" id="play" type="button">Pause</button>
+      <div class="speed">
+        <label for="rider-speed">Rider speed</label>
+        <input id="rider-speed" type="range" min="15" max="60" step="1" value="36">
+        <output id="speed-out" for="rider-speed">36 km/h</output>
+      </div>
+      <div class="seek" id="seek-wrap" hidden>
+        <input id="seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Position in video">
+        <output id="seek-out">0:00 / 0:00</output>
+      </div>
+      <div class="layers" role="group" aria-label="Overlay layers">
+        <span class="layers-label">Layers</span>
+        <label class="chip"><input type="checkbox" id="l-grid" checked><span>Road grid</span></label>
+        <label class="chip"><input type="checkbox" id="l-trail" checked><span>Centre line</span></label>
+        <label class="chip"><input type="checkbox" id="l-boxes" checked><span>Boxes</span></label>
+        <label class="chip"><input type="checkbox" id="l-rings" checked><span>Distance rings</span></label>
+        <label class="chip"><input type="checkbox" id="l-callouts" checked><span>Hazard callouts</span></label>
+      </div>
+    </div>
+    <p class="note" id="note">This is a simulated night ride used to design the screen. In the live version the same view plays your recorded video, and every overlay comes from the model: detections, road mask, distances, curvature, surface type, lean, pothole grades and alerts. Time to reach a hazard uses the rider speed set above.</p>
+  </section>
+
+  <aside class="side">
+    <section class="card" aria-labelledby="map-h">
+      <h2 id="map-h">Bird's-eye map <small>range 40 m</small></h2>
+      <canvas id="map" class="map-canvas" aria-label="Top-down map of tracked objects"></canvas>
+    </section>
+    <section class="card" aria-labelledby="rider-h">
+      <h2 id="rider-h">Rider &amp; road</h2>
+      <div class="rider">
+        <canvas id="lean" class="lean-canvas" aria-label="Lean gauge"></canvas>
+        <div class="readouts">
+          <div class="ro"><span class="k">Lean</span><span class="v cyan" id="r-lean">0° upright</span></div>
+          <div class="ro"><span class="k">Curvature</span><span class="v cyan" id="r-curve">Straight</span></div>
+          <div class="ro"><span class="k">Surface</span><span class="v green" id="r-surface">Asphalt 93%</span></div>
+        </div>
+      </div>
+    </section>
+    <section class="card" aria-labelledby="alerts-h">
+      <h2 id="alerts-h">Alerts <small id="obj-count">0 tracked</small></h2>
+      <ul class="alerts" id="alerts"><li class="empty">No hazards ahead</li></ul>
+    </section>
+    <section class="card" aria-labelledby="can-h">
+      <h2 id="can-h">CAN bus <small>ID · 8 data bytes · decoded</small></h2>
+      <pre class="can" id="can"></pre>
+    </section>
+  </aside>
+</main>
+
+<script>
+(() => {
+  // ---------- Scene geometry (matches the model: 640x384 image, 70° field of view, x2 for display) ----------
+  const W = 1280, H = 768;
+  let HFOV = 70;
+  let F = (W / 2) / Math.tan(HFOV * Math.PI / 360);     // focal length in pixels
+  let V0 = Math.round(H * 0.42);                       // horizon row
+  let HC = 1.25;                                       // camera height (m)
+  const ROAD_L = -1.75, ROAD_R = 5.25, ROAD_MID = 1.75;  // left-hand traffic: rider in the left lane
+  const C = { road: '#46ffa8', cyan: '#45dcff', amber: '#ffb52e', red: '#ff4d5e', fg: '#d9e5f2', muted: '#7b8fa6' };
+  const MONO = "'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace";
+  const DISPLAY = "'Roboto Serif', Georgia, serif";
+  // wide serif for labels (Sreda-like), normal width for the monospace data
+  const setFont = (c, spec, wide) => { c.font = spec; if ('fontStretch' in c) c.fontStretch = wide ? 'extra-expanded' : 'normal'; };
+  // text over video without a filled backdrop: a dark halo keeps it readable
+  const halo = c => { c.shadowColor = 'rgba(0,0,0,0.95)'; c.shadowBlur = 6; c.shadowOffsetX = 0; c.shadowOffsetY = 1; };
+  const GRADE_TEXT = ['', 'MINOR · RIDE OVER', 'SMALL · EASE OFF', 'MEDIUM · SLOW DOWN', 'LARGE · STEER AROUND', 'SEVERE · AVOID'];
+  const GRADE_SHORT = ['', 'minor', 'small', 'medium', 'large', 'severe'];
+
+  const CLASS = {
+    pothole: { id: 0, label: 'POTHOLE' }, hump: { id: 1, label: 'SPEED BREAKER' },
+    car: { id: 2, label: 'CAR' }, tw: { id: 3, label: 'TWO-WHEELER' },
+    bus: { id: 4, label: 'BUS / TRUCK' }, person: { id: 5, label: 'PERSON' },
+  };
+  const SHORT = { pothole: 'pothole', hump: 'breaker', car: 'car', tw: '2-wheel', bus: 'bus', person: 'person' };
+  const CURVE_NAMES = ['Unknown', 'Straight', 'Gentle left', 'Sharp left', 'Gentle right', 'Sharp right'];
+  const SURFACES = ['Asphalt', 'Concrete', 'Paving stones', 'Unpaved'];
+
+  // ---------- Simulation state ----------
+  const S = { t: 0, travel: 0, kappa: 0, lean: 0, playing: true, speedKmh: 36, nextId: 1, frame: 0,
+              canT: 0, canCounter: 0, canLines: [], uiT: 0, fps: 30, fpsAcc: 0, fpsN: 0 };
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const TEMPLATES = [
+    { kind: 'car', off: 0.0, z: 34, own: 0.86, w: 1.8, h: 1.5, len: 4.3, color: '#8794a6', respawn: [58, 75] },
+    { kind: 'tw', off: -1.05, z: 21, own: 0.72, w: 0.8, h: 1.45, len: 1.9, color: '#5a6676', respawn: [42, 58] },
+    { kind: 'car', off: 3.5, z: 72, own: -0.85, w: 1.8, h: 1.5, len: 4.3, color: '#b9a582', oncoming: true, respawn: [80, 96] },
+    { kind: 'bus', off: 3.6, z: 98, own: -0.45, w: 2.5, h: 3.1, len: 10, color: '#6d7f90', oncoming: true, respawn: [110, 130] },
+    { kind: 'person', off: -2.9, z: 29, own: 0, w: 0.55, h: 1.7, len: 0.4, color: '#4b5563', respawn: [48, 66] },
+    { kind: 'pothole', off: 0.25, z: 40, own: 0, w: 0.9, d: 0.7, widths: [0.45, 0.9, 1.3], respawn: [55, 68] },
+    { kind: 'hump', off: ROAD_MID, z: 82, own: 0, w: ROAD_R - ROAD_L, d: 0.5, respawn: [95, 115] },
+  ];
+  const objects = TEMPLATES.map(t => ({ ...t, id: S.nextId++ }));
+
+  // Skyline, generated once
+  const skyline = [];
+  for (let x = -60; x < W + 60; ) {
+    const w = rand(28, 90), h = rand(18, 110);
+    const wins = [];
+    for (let i = 0; i < Math.floor(w * h / 260); i++) wins.push([rand(4, w - 6), rand(6, h - 6), Math.random() < 0.7]);
+    skyline.push({ x, w, h, wins });
+    x += w + rand(-6, 10);
+  }
+
+  // ---------- Geometry helpers ----------
+  const xc = z => 0.5 * S.kappa * z * z;                         // road bends with curvature kappa
+  const P = (x, y, z) => [W / 2 + F * x / z, V0 + F * (HC - y) / z]; // world (m) -> image (px)
+  const smooth = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+  function kappaAt(t) {
+    const T = t % 48;
+    const right = 1 / 170, left = -1 / 70;
+    if (T < 8) return 0;
+    if (T < 18) return right * smooth(8, 10, T) * (1 - smooth(16, 18, T));
+    if (T < 26) return 0;
+    if (T < 38) return left * smooth(26, 28.5, T) * (1 - smooth(35.5, 38, T));
+    return 0;
+  }
+  function surfaceAt(t) {
+    const T = t % 48;
+    if (T >= 30 && T < 40) return { code: 1, conf: 0.81 + 0.03 * Math.sin(t * 1.7) };
+    return { code: 0, conf: 0.93 + 0.02 * Math.sin(t * 1.3) };
+  }
+
+  // Severity from real width (same thresholds as models/hazards.py)
+  const severityOf = w => 1 + [0.3, 0.6, 1.0, 1.5].filter(th => w > th).length;
+
+  // Curvature exactly as models/postprocess.py: bend between near and far halves of the road centre line
+  function curvature() {
+    const pts = [];
+    for (let z = 5; z <= 60; z += 2.5) pts.push(P(xc(z) + ROAD_MID, 0, z));
+    const half = Math.floor(pts.length / 2);
+    const heading = p => {
+      const n = p.length, ts = p.map(q => -q[1]), xs = p.map(q => q[0]);
+      const mt = ts.reduce((a, b) => a + b) / n, mx = xs.reduce((a, b) => a + b) / n;
+      let num = 0, den = 0;
+      for (let i = 0; i < n; i++) { num += (ts[i] - mt) * (xs[i] - mx); den += (ts[i] - mt) ** 2; }
+      return Math.atan(num / den) * 180 / Math.PI;
+    };
+    const bend = heading(pts.slice(half)) - heading(pts.slice(0, half));
+    const a = Math.abs(bend);
+    const code = a < 8 ? 1 : bend < 0 ? (a < 25 ? 2 : 3) : (a < 25 ? 4 : 5);
+    return { code, bend };
+  }
+
+  // ---------- Per-frame "model output" ----------
+  function detections() {
+    const out = [];
+    for (const o of objects) {
+      if (o.z < 3.5 || o.z > 90) continue;
+      const X = xc(o.z) + o.off;
+      let x1, y1, x2, y2;
+      if (o.kind === 'pothole' || o.kind === 'hump') {
+        const xl = o.kind === 'hump' ? xc(o.z) + ROAD_L : X - o.w / 2;
+        const xr = o.kind === 'hump' ? xc(o.z) + ROAD_R : X + o.w / 2;
+        const pts = [P(xl, 0, o.z), P(xr, 0, o.z), P(xl, 0, o.z + o.d), P(xr, 0, o.z + o.d)];
+        x1 = Math.min(...pts.map(p => p[0])); x2 = Math.max(...pts.map(p => p[0]));
+        y1 = Math.min(...pts.map(p => p[1])) - (o.kind === 'hump' ? F * 0.1 / o.z : 0); y2 = Math.max(...pts.map(p => p[1]));
+      } else {
+        [x1, y1] = P(X - o.w / 2, o.h, o.z); [x2, y2] = P(X + o.w / 2, 0, o.z);
+      }
+      if (x2 < 0 || x1 > W) continue;
+      const d = { o, kind: o.kind, id: o.id, cls: CLASS[o.kind].id, box: [x1, y1, x2, y2], dist: o.z, X,
+                  conf: Math.max(0.42, 0.95 - o.z / 180) };
+      if (o.kind === 'pothole') { d.width = o.w; d.severity = severityOf(o.w); }
+      out.push(d);
+    }
+    return out;
+  }
+  function danger(d) {
+    const v = S.speedKmh / 3.6;
+    d.reach = d.dist / v;
+    if (d.kind === 'pothole') d.alert = d.severity >= 3 && d.dist <= 20;
+    else if (d.kind === 'hump') d.alert = d.dist <= 25;
+    else d.alert = d.dist <= 8;
+    d.level = d.alert ? 'red' : (d.kind === 'pothole' || d.kind === 'hump' || d.dist <= 20) ? 'amber' : 'green';
+    return d;
+  }
+  const levelColor = l => (l === 'red' ? C.red : l === 'amber' ? C.amber : C.road);
+
+  // ---------- Simulation step ----------
+  function step(dt) {
+    const v = S.speedKmh / 3.6;
+    S.t += dt; S.travel += v * dt;
+    S.kappa = kappaAt(S.t);
+    const target = Math.atan(v * v * S.kappa / 9.81) * 180 / Math.PI + 1.2 * Math.sin(S.t * 0.9);
+    S.lean += (target - S.lean) * Math.min(1, dt * 2.5);
+    for (const o of objects) {
+      o.z += (o.own - 1) * v * dt;
+      if (o.z < 3.0) {
+        o.z = rand(...o.respawn);
+        o.id = S.nextId++;
+        if (o.widths) o.w = o.widths[Math.floor(Math.random() * o.widths.length)];
+      }
+    }
+  }
+
+  // ---------- Canvas setup ----------
+  const scene = document.getElementById('scene'), ctx = scene.getContext('2d');
+  const map = document.getElementById('map'), mctx = map.getContext('2d');
+  const leanC = document.getElementById('lean'), lctx = leanC.getContext('2d');
+  function fit(canvas, lw, lh) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    canvas._s = [w / lw, h / lh];
+  }
+  const resize = () => { fit(scene, W, H); fit(map, 320, 320); fit(leanC, 132, 92); };
+  new ResizeObserver(resize).observe(document.body);
+  resize();
+
+  // ---------- Drawing: the "video" ----------
+  function quad(c, pts, fill) {
+    c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+    c.closePath(); c.fillStyle = fill; c.fill();
+  }
+  function roadPoly(zNear, zFar, xa, xb, step = 1) {
+    const L = [], R = [];
+    for (let z = zNear; z <= zFar; z += step * (z > 40 ? 3 : 1)) { L.push(P(xc(z) + xa, 0, z)); R.push(P(xc(z) + xb, 0, z)); }
+    return L.concat(R.reverse());
+  }
+  function drawWorld(c, surf) {
+    const sky = c.createLinearGradient(0, 0, 0, V0);
+    sky.addColorStop(0, '#060d1c'); sky.addColorStop(0.75, '#112340'); sky.addColorStop(1, '#1f3a5c');
+    c.fillStyle = sky; c.fillRect(-200, -200, W + 400, V0 + 200);
+    // skyline
+    const shift = -S.kappa * 9000;
+    for (const b of skyline) {
+      const x = b.x + shift % 60;
+      c.fillStyle = '#0a1628'; c.fillRect(x, V0 - b.h, b.w, b.h);
+      for (const [wx, wy, on] of b.wins) if (on) { c.fillStyle = 'rgba(255,196,110,0.35)'; c.fillRect(x + wx, V0 - b.h + wy, 2, 2); }
+    }
+    const glow = c.createLinearGradient(0, V0 - 30, 0, V0 + 20);
+    glow.addColorStop(0, 'rgba(69,220,255,0)'); glow.addColorStop(0.6, 'rgba(69,220,255,0.12)'); glow.addColorStop(1, 'rgba(69,220,255,0)');
+    c.fillStyle = glow; c.fillRect(-200, V0 - 30, W + 400, 50);
+    c.fillStyle = '#05080d'; c.fillRect(-200, V0, W + 400, H - V0 + 200);
+    // road surface
+    const asphalt = surf.code === 1 ? '#262c35' : '#141b26';
+    quad(c, roadPoly(2.2, 160, ROAD_L - 0.4, ROAD_R + 0.4), asphalt);
+    // lane markings: solid edges, dashed centre
+    for (const xo of [ROAD_L, ROAD_R]) {
+      c.beginPath();
+      for (let z = 2.2; z < 160; z += (z > 40 ? 3 : 1)) { const [u, v] = P(xc(z) + xo, 0, z); z === 2.2 ? c.moveTo(u, v) : c.lineTo(u, v); }
+      c.strokeStyle = 'rgba(220,228,238,0.55)'; c.lineWidth = 3; c.stroke();
+    }
+    const off = S.travel % 9;
+    for (let k = 0; k < 20; k++) {
+      const z0 = 2.2 + k * 9 - off, z1 = z0 + 4;
+      if (z1 < 2.2) continue;
+      const a = Math.max(2.2, z0);
+      quad(c, [P(xc(a) + ROAD_MID - 0.08, 0, a), P(xc(z1) + ROAD_MID - 0.08, 0, z1), P(xc(z1) + ROAD_MID + 0.08, 0, z1), P(xc(a) + ROAD_MID + 0.08, 0, a)], 'rgba(230,235,242,0.6)');
+    }
+    // objects, far to near
+    const sorted = [...objects].filter(o => o.z > 3 && o.z < 140).sort((a, b) => b.z - a.z);
+    for (const o of sorted) drawObject(c, o);
+    // light falloff
+    const vig = c.createRadialGradient(W / 2, H * 0.62, H * 0.2, W / 2, H * 0.6, W * 0.75);
+    vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,0.6)');
+    c.fillStyle = vig; c.fillRect(-200, -200, W + 400, H + 400);
+  }
+  function drawObject(c, o) {
+    const X = xc(o.z) + o.off;
+    if (o.kind === 'pothole') {
+      const [u, v] = P(X, 0, o.z + o.d / 2), rx = F * o.w / 2 / o.z, ry = Math.max(1.5, F * HC * o.d / 2 / (o.z * o.z));
+      c.beginPath(); c.ellipse(u, v, rx, ry, 0, 0, Math.PI * 2); c.fillStyle = '#020305'; c.fill();
+      c.strokeStyle = 'rgba(120,130,145,0.5)'; c.lineWidth = 1.2; c.stroke();
+      return;
+    }
+    if (o.kind === 'hump') {
+      const n = 12, xl = xc(o.z) + ROAD_L, span = ROAD_R - ROAD_L;
+      for (let i = 0; i < n; i++) {
+        const a = xl + span * i / n, b = xl + span * (i + 1) / n;
+        quad(c, [P(a, 0, o.z), P(b, 0, o.z), P(b, 0.08, o.z + o.d), P(a, 0.08, o.z + o.d)], i % 2 ? 'rgba(20,20,22,0.9)' : 'rgba(214,170,48,0.85)');
+      }
+      return;
+    }
+    const [x1, y1] = P(X - o.w / 2, o.h, o.z), [x2, y2] = P(X + o.w / 2, 0, o.z);
+    const w = x2 - x1, h = y2 - y1;
+    if (o.kind === 'person') {
+      c.fillStyle = '#3a4352';
+      c.beginPath(); c.arc((x1 + x2) / 2, y1 + w * 0.32, w * 0.32, 0, Math.PI * 2); c.fill();
+      c.fillRect(x1 + w * 0.12, y1 + w * 0.62, w * 0.76, h * 0.5);
+      c.fillRect(x1 + w * 0.2, y1 + h * 0.55, w * 0.22, h * 0.45); c.fillRect(x1 + w * 0.58, y1 + h * 0.55, w * 0.22, h * 0.45);
+      return;
+    }
+    if (o.kind === 'tw') {
+      c.fillStyle = '#11161d'; roundRect(c, x1 + w * 0.38, y1 + h * 0.66, w * 0.24, h * 0.34, w * 0.1); c.fill();
+      c.fillStyle = '#2b333f'; c.fillRect(x1 + w * 0.26, y1 + h * 0.5, w * 0.48, h * 0.2);
+      c.beginPath(); c.arc((x1 + x2) / 2, y1 + h * 0.16, w * 0.24, 0, Math.PI * 2); c.fillStyle = '#39424f'; c.fill();
+      c.fillRect(x1 + w * 0.18, y1 + h * 0.3, w * 0.64, h * 0.32);
+      glowDot(c, (x1 + x2) / 2, y1 + h * 0.72, Math.max(1.5, w * 0.08), '#ff3b3b');
+      return;
+    }
+    // car or bus (rear or front view)
+    const r = Math.min(10, w * 0.12);
+    c.fillStyle = o.color; roundRect(c, x1, y1 + h * 0.08, w, h * 0.92, r); c.fill();
+    c.fillStyle = 'rgba(8,12,18,0.85)';
+    if (o.kind === 'bus') roundRect(c, x1 + w * 0.06, y1 + h * 0.18, w * 0.88, h * 0.3, r * 0.5);
+    else roundRect(c, x1 + w * 0.14, y1 + h * 0.14, w * 0.72, h * 0.3, r * 0.6);
+    c.fill();
+    c.fillStyle = 'rgba(0,0,0,0.45)'; c.fillRect(x1 + w * 0.06, y2 - h * 0.14, w * 0.88, h * 0.1);
+    const lr = Math.max(1.5, w * 0.06), ly = y1 + h * 0.62;
+    const lc = o.oncoming ? '#fff4d6' : '#ff3b3b';
+    glowDot(c, x1 + w * 0.12, ly, lr, lc); glowDot(c, x2 - w * 0.12, ly, lr, lc);
+  }
+  function glowDot(c, x, y, r, col) {
+    c.save(); c.shadowColor = col; c.shadowBlur = r * 6; c.fillStyle = col;
+    c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); c.restore();
+  }
+  function roundRect(c, x, y, w, h, r) {
+    c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+
+  // ---------- Drawing: overlays (what the model outputs) ----------
+  const layer = id => document.getElementById(id).checked;
+  function drawGrid(c) {
+    c.save();
+    quad(c, roadPoly(3, 70, ROAD_L, ROAD_R), 'rgba(70,255,168,0.07)');
+    c.shadowColor = C.road; c.shadowBlur = 8; c.lineWidth = 1.6;
+    for (const xo of [ROAD_L, 0, ROAD_MID, 3.5, ROAD_R]) {
+      c.beginPath();
+      for (let z = 3; z <= 70; z += 1) { const [u, v] = P(xc(z) + xo, 0, z); z === 3 ? c.moveTo(u, v) : c.lineTo(u, v); }
+      c.strokeStyle = 'rgba(70,255,168,0.45)'; c.stroke();
+    }
+    const off = S.travel % 5;
+    for (let k = 0; k < 14; k++) {
+      const z = 3 + k * 5 - off;
+      if (z < 3) continue;
+      const [a, b] = [P(xc(z) + ROAD_L, 0, z), P(xc(z) + ROAD_R, 0, z)];
+      c.strokeStyle = `rgba(70,255,168,${(0.5 * (1 - z / 72)).toFixed(3)})`;
+      c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+    }
+    c.restore();
+  }
+  function drawTrail(c) {
+    c.save(); c.shadowColor = C.cyan; c.shadowBlur = 14; c.lineCap = 'round';
+    for (let z = 4; z < 55; z += 1) {
+      const [a, b] = [P(xc(z), 0, z), P(xc(z + 1), 0, z + 1)];
+      c.strokeStyle = `rgba(69,220,255,${(0.85 * (1 - z / 60)).toFixed(3)})`;
+      c.lineWidth = Math.max(1.5, F * 0.16 / z);
+      c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+    }
+    // moving chevrons
+    const off = S.travel % 6;
+    for (let k = 0; k < 8; k++) {
+      const z = 5 + k * 6 - off;
+      if (z < 5 || z > 50) continue;
+      const [u, v] = P(xc(z), 0, z), [u2, v2] = P(xc(z + 1.2), 0, z + 1.2);
+      const s = F * 0.35 / z, ang = Math.atan2(v2 - v, u2 - u);
+      c.save(); c.translate(u, v); c.rotate(ang + Math.PI / 2);
+      c.strokeStyle = 'rgba(200,245,255,0.9)'; c.lineWidth = Math.max(1.5, s * 0.25);
+      c.beginPath(); c.moveTo(-s, s * 0.5); c.lineTo(0, -s * 0.2); c.lineTo(s, s * 0.5); c.stroke();
+      c.restore();
+    }
+    c.restore();
+  }
+  function drawRing(c, d, pulse) {
+    if (d.kind === 'pothole' || d.kind === 'hump' || d.dist > 45 || d.dist <= 0) return;
+    const col = levelColor(d.level);
+    // recorded runs: ring sits where the object touches the road (bottom of its box)
+    const [u, v] = R.on ? [(d.box[0] + d.box[2]) / 2, d.box[3]] : P(d.X, 0, d.dist);
+    const base = Math.max(0.7, d.o.w * 0.75);
+    for (const [r, a] of [[base * pulse, 0.55], [base * 1.5 * pulse, 0.25]]) {
+      const rx = Math.min(240, F * r / d.dist), ry = Math.max(2, Math.min(rx * 0.45, F * HC * r / (d.dist * d.dist)));
+      c.beginPath(); c.ellipse(u, v, rx, ry, 0, 0, Math.PI * 2);
+      c.strokeStyle = hexA(col, a); c.lineWidth = 2.5; c.stroke();
+    }
+  }
+  let tagRects = [];
+  function drawBox(c, d) {
+    if (d.kind === 'pothole' || d.kind === 'hump') return;
+    const [x1, y1, x2, y2] = d.box, col = levelColor(d.level);
+    c.save(); c.strokeStyle = col; c.lineWidth = 2; c.shadowColor = col; c.shadowBlur = 6;
+    c.strokeRect(x1, y1, x2 - x1, y2 - y1); c.restore();
+    if (d.dist > 40) return;
+    const tag = `${CLASS[d.kind].label}  #${String(d.id).padStart(2, '0')}  ${fmtM(d.dist)}`;
+    setFont(c, `500 13px ${MONO}`, false);
+    const tw = c.measureText(tag).width + 14, tx = Math.min(W - tw - 4, Math.max(4, x1)), ty = Math.max(4, y1 - 24);
+    if (tagRects.some(r => tx < r.x + r.w && tx + tw > r.x && ty < r.y + 22 && ty + 22 > r.y)) return;
+    if (placed.some(r => tx < r.x + r.w && tx + tw > r.x && ty < r.y + r.h && ty + 22 > r.y)) return;
+    tagRects.push({ x: tx, y: ty, w: tw });
+    c.save(); c.strokeStyle = col; c.lineWidth = 1.2; c.strokeRect(tx + 0.5, ty + 0.5, tw - 1, 19);
+    halo(c); c.fillStyle = C.fg; c.fillText(tag, tx + 8, ty + 14.5); c.restore();
+  }
+  let placed = [];
+  function drawCallout(c, d) {
+    if (d.kind !== 'pothole' && d.kind !== 'hump') return;
+    if (d.dist > 75) return;
+    const col = levelColor(d.level);
+    const u = (d.box[0] + d.box[2]) / 2, v = d.box[3] - (d.box[3] - d.box[1]) * 0.4;
+    const pole = 34 + Math.min(70, 1200 / Math.max(1, d.dist));
+    // size the panel to its text, so the grade label always stays inside the box
+    const big = d.kind === 'pothole' ? (d.severity ? `GRADE L${d.severity}` : 'GRADE —') : d.dist > 0 ? `IN ${d.dist.toFixed(0)} M` : 'AHEAD';
+    setFont(c, `700 22px ${DISPLAY}`, true); const bw = c.measureText(big).width;
+    let gw = 0;
+    if (d.kind === 'pothole') { setFont(c, `600 11px ${DISPLAY}`, true); gw = c.measureText(GRADE_TEXT[d.severity]).width + 10; }
+    setFont(c, `700 13px ${DISPLAY}`, true); const hw = c.measureText(CLASS[d.kind].label).width;
+    const panelW = Math.ceil(Math.max(210, 10 + bw + gw + 14, 10 + hw + 14)), lines = d.kind === 'pothole'
+      ? [['DIST', fmtM(d.dist)], ['WIDTH', d.width ? `${d.width.toFixed(2)} m` : '—'], ['TRACK', `#${String(d.id).padStart(2, '0')}`], ['REACH', fmtS(d.reach)]]
+      : [['DIST', fmtM(d.dist)], ['TRACK', `#${String(d.id).padStart(2, '0')}`], ['REACH', fmtS(d.reach)]];
+    const panelH = 64 + lines.length * 18;
+    const side = d.kind === 'pothole' ? 1 : -1;
+    let px = side > 0 ? u + 2 : u - panelW - 2;
+    px = Math.min(W - panelW - 8, Math.max(8, px));
+    let py = Math.max(8, v - pole - panelH);
+    // keep clear of panels already drawn this frame
+    for (const r of placed) {
+      if (px < r.x + r.w + 8 && px + panelW + 8 > r.x && py < r.y + r.h + 8 && py + panelH + 8 > r.y) {
+        const left = r.x - panelW - 12, right = r.x + r.w + 12;
+        px = right + panelW <= W - 8 ? right : Math.max(8, left);
+      }
+    }
+    placed.push({ x: px, y: py, w: panelW, h: panelH });
+    c.save();
+    c.strokeStyle = col; c.lineWidth = 2; c.shadowColor = col; c.shadowBlur = 10;
+    c.beginPath(); c.moveTo(u, v); c.lineTo(u, py + panelH); c.stroke();
+    c.fillStyle = hexA(col, 0.9); c.fillRect(u - 7, v - 4, 14, 8);
+    c.restore();
+    c.save();
+    c.strokeStyle = col; c.lineWidth = 1.4; c.strokeRect(px + 0.5, py + 0.5, panelW - 1, panelH - 1);
+    c.beginPath(); c.moveTo(px, py + 26.5); c.lineTo(px + panelW, py + 26.5); c.stroke();
+    halo(c);
+    setFont(c, `700 13px ${DISPLAY}`, true); c.fillStyle = col;
+    c.fillText(CLASS[d.kind].label, px + 10, py + 18);
+    setFont(c, `700 22px ${DISPLAY}`, true); c.fillStyle = C.fg;
+    c.fillText(big, px + 10, py + 52);
+    if (d.kind === 'pothole') {
+      setFont(c, `600 11px ${DISPLAY}`, true); c.fillStyle = col;
+      c.fillText(GRADE_TEXT[d.severity], px + 10 + bw + 10, py + 50);
+    }
+    setFont(c, `400 12.5px ${MONO}`, false);
+    lines.forEach(([k, val], i) => {
+      c.fillStyle = C.muted; c.fillText(k, px + 10, py + 74 + i * 18);
+      c.fillStyle = C.fg; c.fillText(val, px + 86, py + 74 + i * 18);
+    });
+    c.restore();
+  }
+  function drawHud(c, top, curve) {
+    // top-left status
+    setFont(c, `500 13px ${MONO}`, false);
+    const blink = Math.floor(S.t * 2) % 2 === 0;
+    c.save(); halo(c);
+    c.fillStyle = blink ? C.red : 'rgba(255,77,94,0.35)'; c.beginPath(); c.arc(32, 30, 5, 0, Math.PI * 2); c.fill();
+    c.fillStyle = C.fg; c.fillText(`${R.on ? R.meta.name.toUpperCase() : 'SAMPLE'}  FRAME ${String(S.frame).padStart(6, '0')}`, 46, 34.5);
+    c.restore();
+    // curvature chip, top centre
+    const arrow = curve.code === 1 ? '↑' : curve.code === 2 || curve.code === 3 ? '↰' : curve.code === 0 ? '·' : '↱';
+    const ctxt = `${arrow}  ${CURVE_NAMES[curve.code].toUpperCase()}  ${Math.abs(curve.bend).toFixed(0)}°`;
+    setFont(c, `600 18px ${DISPLAY}`, true);
+    const cw = c.measureText(ctxt).width + 28, cx0 = W / 2 - cw / 2;
+    const sharp = curve.code === 3 || curve.code === 5;
+    c.save(); c.strokeStyle = sharp ? C.amber : C.cyan; c.lineWidth = 1.4; c.strokeRect(cx0 + 0.5, 16.5, cw, 34);
+    halo(c); c.fillStyle = sharp ? C.amber : C.cyan; c.fillText(ctxt, cx0 + 14, 39); c.restore();
+    // top-right speed
+    const t = `${S.speedKmh} km/h`;
+    setFont(c, `700 30px ${DISPLAY}`, true); const tw = c.measureText(t).width;
+    c.save(); halo(c); c.fillStyle = C.fg; c.fillText(t, W - tw - 22, 46);
+    setFont(c, `500 11px ${DISPLAY}`, true); c.fillStyle = C.muted; c.textAlign = 'right'; c.fillText('RIDER SPEED (INPUT)', W - 22, 64); c.textAlign = 'start'; c.restore();
+    if (!top) return;
+    // alert panel, bottom-left, notched corners
+    const x = 20, y = H - 166, w = 336, h = 146, n = 16;
+    const blinkHead = Math.floor(S.t * 3) % 2 === 0;
+    c.save();
+    c.beginPath(); c.moveTo(x + n, y); c.lineTo(x + w, y); c.lineTo(x + w, y + h - n); c.lineTo(x + w - n, y + h);
+    c.lineTo(x, y + h); c.lineTo(x, y + n); c.closePath();
+    c.strokeStyle = C.red; c.lineWidth = 2; c.shadowColor = C.red; c.shadowBlur = 10; c.stroke();
+    c.restore();
+    c.save(); halo(c);
+    setFont(c, `700 19px ${DISPLAY}`, true); c.fillStyle = blinkHead ? C.red : '#ff8a95';
+    c.fillText('THREAT DETECTED', x + 18, y + 32);
+    setFont(c, `500 15px ${DISPLAY}`, true); c.fillStyle = C.fg;
+    const what = top.kind === 'pothole' ? `Pothole · L${top.severity} ${GRADE_SHORT[top.severity]}` : top.kind === 'hump' ? 'Speed breaker ahead' : `${CLASS[top.kind].label[0]}${CLASS[top.kind].label.slice(1).toLowerCase()} too close`;
+    c.fillText(what, x + 18, y + 56);
+    c.strokeStyle = 'rgba(255,77,94,0.7)'; c.lineWidth = 1.2; c.strokeRect(x + 18, y + 70, 182, 56);
+    setFont(c, `500 11.5px ${DISPLAY}`, true); c.fillStyle = '#ff9aa4'; c.fillText('REACH IN', x + 28, y + 88);
+    setFont(c, `600 26px ${MONO}`, false); c.fillStyle = C.red;
+    const s = top.reach, mm = Math.floor(s / 60), ss = (s % 60).toFixed(1).padStart(4, '0');
+    c.fillText(`${String(mm).padStart(2, '0')}:${ss}`, x + 28, y + 117);
+    setFont(c, `600 22px ${MONO}`, false); c.fillStyle = C.fg; c.fillText(`${top.dist.toFixed(1)} m`, x + 218, y + 106);
+    c.restore();
+  }
+  function hexA(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+
+  // ---------- Side panels ----------
+  function drawMap(dets) {
+    const c = mctx, [sx, sy] = map._s;
+    c.setTransform(sx, 0, 0, sy, 0, 0); c.clearRect(0, 0, 320, 320);
+    const ex = 160, ey = 300, s = 280 / 40;
+    const M = (x, z) => [ex + x * s, ey - z * s];
+    // field of view
+    c.fillStyle = 'rgba(69,220,255,0.05)';
+    const half = Math.tan(HFOV / 2 * Math.PI / 180) * 280;
+    c.beginPath(); c.moveTo(ex, ey); c.lineTo(ex - half, ey - 280);
+    c.lineTo(ex + half, ey - 280); c.closePath(); c.fill();
+    // range arcs
+    setFont(c, `400 10.5px ${MONO}`, false);
+    for (const r of [10, 20, 30, 40]) {
+      c.strokeStyle = 'rgba(123,143,166,0.25)'; c.lineWidth = 1;
+      c.beginPath(); c.arc(ex, ey, r * s, Math.PI * 1.12, Math.PI * 1.88); c.stroke();
+      c.fillStyle = C.muted; c.fillText(`${r} m`, ex + 4, ey - r * s - 3);
+    }
+    // road
+    if (!R.on) {   // the sample knows its road in metres; a recorded run only knows it in the image
+      const Lp = [], Rp = [];
+      for (let z = 0; z <= 40; z += 1) { Lp.push(M(xc(z) + ROAD_L, z)); Rp.push(M(xc(z) + ROAD_R, z)); }
+      quad(c, Lp.concat([...Rp].reverse()), 'rgba(70,255,168,0.07)');
+      for (const side of [Lp, Rp]) {
+        c.beginPath(); side.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+        c.strokeStyle = 'rgba(70,255,168,0.55)'; c.lineWidth = 1.4; c.stroke();
+      }
+    }
+    // objects
+    for (const d of dets) {
+      if (d.dist > 40 || d.dist <= 0) continue;
+      const col = levelColor(d.level), [x, y] = M(d.X, d.dist);
+      c.save(); c.fillStyle = col; c.strokeStyle = col; c.shadowColor = col; c.shadowBlur = 8;
+      if (d.kind === 'hump') { const [xl, xr] = R.on ? [latOf(d.box[0], d.dist), latOf(d.box[2], d.dist)] : [xc(d.dist) + ROAD_L, xc(d.dist) + ROAD_R]; const [a] = M(xl, d.dist), [b] = M(xr, d.dist); c.fillRect(a, y - 2, b - a, 4); }
+      else if (d.kind === 'pothole') { c.lineWidth = 2; c.beginPath(); c.arc(x, y, 5, 0, Math.PI * 2); c.stroke(); }
+      else if (d.kind === 'person') { c.beginPath(); c.arc(x, y, 3.5, 0, Math.PI * 2); c.fill(); }
+      else { const o = d.o; c.fillRect(x - o.w * s / 2, y - o.len * s, o.w * s, o.len * s); }
+      c.restore();
+      c.fillStyle = C.fg; setFont(c, `500 10.5px ${MONO}`, false);
+      c.fillText(`#${String(d.id).padStart(2, '0')}`, x + 8, y + 4);
+    }
+    // ego
+    c.save(); c.fillStyle = C.cyan; c.shadowColor = C.cyan; c.shadowBlur = 10;
+    c.beginPath(); c.moveTo(ex, ey - 12); c.lineTo(ex + 6, ey + 4); c.lineTo(ex, ey); c.lineTo(ex - 6, ey + 4); c.closePath(); c.fill();
+    c.restore();
+  }
+  function drawLean() {
+    const c = lctx, [sx, sy] = leanC._s;
+    c.setTransform(sx, 0, 0, sy, 0, 0); c.clearRect(0, 0, 132, 92);
+    const cx = 66, cy = 78, r = 58;
+    c.strokeStyle = 'rgba(123,143,166,0.35)'; c.lineWidth = 6; c.lineCap = 'round';
+    c.beginPath(); c.arc(cx, cy, r, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
+    setFont(c, `400 9.5px ${MONO}`, false); c.fillStyle = C.muted; c.textAlign = 'center';
+    for (const a of [-30, -15, 0, 15, 30]) {
+      const t = -Math.PI / 2 + (a / 30) * 0.35 * Math.PI;
+      c.strokeStyle = 'rgba(123,143,166,0.7)'; c.lineWidth = 1.5;
+      c.beginPath(); c.moveTo(cx + Math.cos(t) * (r - 9), cy + Math.sin(t) * (r - 9)); c.lineTo(cx + Math.cos(t) * (r - 3), cy + Math.sin(t) * (r - 3)); c.stroke();
+      if (Math.abs(a) === 30) { c.textAlign = a < 0 ? 'left' : 'right'; c.fillText(a < 0 ? 'L 30°' : 'R 30°', a < 0 ? 2 : 130, 90); c.textAlign = 'center'; }
+    }
+    c.textAlign = 'start';
+    if (S.lean === null) return;          // the baselines do not estimate lean
+    const lean = Math.max(-30, Math.min(30, S.lean));
+    const t = -Math.PI / 2 + (lean / 30) * 0.35 * Math.PI;
+    c.save(); c.strokeStyle = C.cyan; c.shadowColor = C.cyan; c.shadowBlur = 10; c.lineWidth = 3;
+    c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(t) * (r - 4), cy + Math.sin(t) * (r - 4)); c.stroke();
+    c.beginPath(); c.arc(cx, cy, 4, 0, Math.PI * 2); c.fillStyle = C.cyan; c.fill(); c.restore();
+    c.textAlign = 'start';
+  }
+  const leanText = l => (l === null ? '— combined model' : Math.abs(l) < 3 ? `${Math.abs(l).toFixed(0)}° upright` : `${Math.abs(l).toFixed(0)}° ${l > 0 ? 'right' : 'left'}`);
+
+  // ---------- CAN messages (proposed layout; Person B's DBC defines the final bits) ----------
+  const hx = n => ((Math.round(n) % 256 + 256) % 256).toString(16).toUpperCase().padStart(2, '0');
+  function emitCan(dets, curve, surf) {
+    const k = S.canCounter = (S.canCounter + 1) % 16;
+    const ts = S.t.toFixed(1).padStart(5, ' ');
+    const add = (id, bytes, dec) => {
+      S.canLines.push(`<span>${ts}</span> <span class="id">${id.slice(2)}</span> <span class="data">${bytes.map(hx).join(' ')}</span> <span class="dec">${dec}</span>`);
+    };
+    const near = [...dets].sort((a, b) => a.dist - b.dist).slice(0, 2);
+    near.forEach((d, i) => {
+      const dm = Math.round(d.dist * 10), pos = Math.round(((d.box[0] + d.box[2]) / 2 - W / 2) / (W / 2) * 100);
+      add('0x100', [i, d.cls, dm & 255, dm >> 8, pos, Math.round(d.conf * 100), d.id, k], `${SHORT[d.kind]} ${d.dist.toFixed(0)}m`);
+    });
+    add('0x110', [curve.code, Math.round(curve.bend), surf.code, Math.round(surf.conf * 100), 0, 0, 0, k], `${['unk', 'str', 'gL', 'sL', 'gR', 'sR'][curve.code]} ${SURFACES[surf.code].slice(0, 4).toLowerCase()}`);
+    const sev = Math.max(0, ...dets.filter(d => d.kind === 'pothole' && d.dist <= 30).map(d => d.severity));
+    add('0x120', [Math.round(S.lean), sev, 0, 0, 0, 0, 0, k], `lean ${S.lean.toFixed(0)}° L${sev}`);
+    if (k % 5 === 0) add('0x130', [Math.round(S.fps), dets.length, 0, 0, 0, 0, 0, k], `${dets.length} obj ok`);
+    S.canLines = S.canLines.slice(-9);
+  }
+
+  // ---------- UI text ----------
+  const $ = id => document.getElementById(id);
+  function updateUi(dets, curve, surf) {
+    $('r-lean').textContent = leanText(S.lean);
+    $('r-curve').textContent = `${CURVE_NAMES[curve.code]} · ${Math.abs(curve.bend).toFixed(0)}°`;
+    $('r-surface').textContent = surf ? `${SURFACES[surf.code]} ${(surf.conf * 100).toFixed(0)}%` : '— combined model';
+    $('obj-count').textContent = `${dets.length} tracked`;
+    const alerts = dets.filter(d => d.alert).sort((a, b) => a.dist - b.dist);
+    const ul = $('alerts');
+    if (!alerts.length) { ul.innerHTML = '<li class="empty">No hazards ahead</li>'; }
+    else ul.innerHTML = alerts.map(a => {
+      const col = levelColor(a.level);
+      const what = a.kind === 'pothole' ? `Pothole L${a.severity} (${GRADE_SHORT[a.severity]})` : a.kind === 'hump' ? 'Speed breaker' : `${CLASS[a.kind].label[0]}${CLASS[a.kind].label.slice(1).toLowerCase()} close`;
+      return `<li style="--sev:${col}"><span class="what">${what} · #${String(a.id).padStart(2, '0')}</span><span class="when">${a.dist.toFixed(0)} m · ${fmtS(a.reach)}</span></li>`;
+    }).join('');
+    $('can').innerHTML = S.canLines.join('\n');
+  }
+
+  // ---------- Recorded runs (made by: python -m app.process_video) ----------
+  const fmtM = m => (m > 0 ? `${m.toFixed(1)} m` : '? m');
+  const fmtS = s => (isFinite(s) ? `${s.toFixed(1)} s` : '—');
+  const fmtT = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const latOf = (u, dist) => (u - W / 2) / F * dist;      // sideways metres of an image column
+  const KIND_OF = ['pothole', 'hump', 'car', 'tw', 'bus', 'person'];
+  const SIZE = { pothole: [0.9, 0.7], hump: [7, 0.5], car: [1.8, 4.3], tw: [0.8, 1.9], bus: [2.5, 10], person: [0.55, 0.4] };
+  const SIM = { HFOV, F, V0, HC };
+  const R = { on: false, meta: null, frames: [], idx: -1, video: $('video'), seeking: false };
+
+  function frameAt(t) {                                    // last processed frame at or before time t
+    const f = R.frames;
+    let lo = 0, hi = f.length - 1;
+    if (!f.length || t < f[0].t) return 0;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (f[mid].t <= t + 1e-3) lo = mid; else hi = mid - 1; }
+    return lo;
+  }
+  // blend two processed frames, so overlays glide between model updates (matters with --every 3)
+  function lerpObjs(a, b, f) {
+    if (!b || f <= 0) return a.objs;
+    const nb = new Map(b.objs.map(o => [o[0], o]));
+    return a.objs.map(o => {
+      const q = nb.get(o[0]);
+      if (!q) return o;
+      const r = o.slice();
+      for (const k of [2, 3, 4, 5, 11]) r[k] = o[k] + (q[k] - o[k]) * f;
+      if (o[6] > 0 && q[6] > 0) r[6] = o[6] + (q[6] - o[6]) * f;
+      return r;
+    });
+  }
+  function lerpEdges(a, b, f) {
+    if (!b || f <= 0 || !b.edges.length) return a.edges;
+    const nb = new Map(b.edges.map(e => [e[0], e]));
+    return a.edges.map(e => { const q = nb.get(e[0]); return q ? [e[0], e[1] + (q[1] - e[1]) * f, e[2] + (q[2] - e[2]) * f] : e; });
+  }
+  function runDets(objs) {
+    const v = S.speedKmh / 3.6;
+    return objs.map(([id, cls, x1, y1, x2, y2, dist, sev, conf, alert, width, lat]) => {
+      const kind = KIND_OF[cls] || 'car', [w, len] = SIZE[kind];
+      const d = { kind, id, cls, box: [x1 * 2, y1 * 2, x2 * 2, y2 * 2], dist, X: lat, conf, severity: sev, width,
+                  o: { w: kind === 'pothole' && width ? width : w, len }, alert: !!alert };
+      d.reach = dist > 0 ? dist / v : Infinity;
+      d.level = d.alert ? 'red' : (kind === 'pothole' || kind === 'hump' || (dist > 0 && dist <= 20)) ? 'amber' : 'green';
+      return d;
+    });
+  }
+  // road edges from the model, in screen pixels: [[y, left, right], ...], nearest row first
+  const edgesPx = edges => edges.map(([y, l, r]) => [y * 2, l * 2, r * 2]);
+  function edgeAt(E, y) {
+    for (let i = 0; i < E.length - 1; i++) {
+      const [y0, l0, r0] = E[i], [y1, l1, r1] = E[i + 1];
+      if (y <= y0 && y >= y1) { const f = (y0 - y) / Math.max(1e-6, y0 - y1); return [l0 + (l1 - l0) * f, r0 + (r1 - r0) * f]; }
+    }
+    return null;
+  }
+  function polyline(c, pts) { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); }
+  function drawRunGrid(c, E) {
+    if (E.length < 3) return;
+    c.save();
+    polyline(c, E.map(([y, l]) => [l, y]).concat(E.map(([y, , r]) => [r, y]).reverse())); c.closePath();
+    c.fillStyle = 'rgba(70,255,168,0.07)'; c.fill();
+    c.shadowColor = C.road; c.shadowBlur = 8; c.lineWidth = 1.6;
+    // road edges and lane lines follow the road's real shape, as in the sample
+    for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+      polyline(c, E.map(([y, l, r]) => [l + (r - l) * f, y]));
+      c.strokeStyle = f === 0 || f === 1 ? 'rgba(70,255,168,0.75)' : 'rgba(70,255,168,0.35)'; c.stroke();
+    }
+    // cross lines every 5 m along the ground, scrolling with the rider's speed
+    const off = S.travel % 5, yTop = E[E.length - 1][0];
+    for (let k = 0; k < 16; k++) {
+      const z = 3 + k * 5 - off;
+      if (z < 3) continue;
+      const y = V0 + F * HC / z;
+      if (y < yTop) break;
+      const e = edgeAt(E, y);
+      if (!e) continue;
+      c.strokeStyle = `rgba(70,255,168,${(0.55 * (1 - z / 80)).toFixed(3)})`;
+      c.beginPath(); c.moveTo(e[0], y); c.lineTo(e[1], y); c.stroke();
+    }
+    c.restore();
+  }
+  function drawRunTrail(c, E) {
+    if (E.length < 3) return;
+    const [, l0, r0] = E[0];
+    const f0 = Math.min(0.85, Math.max(0.15, (W / 2 - l0) / Math.max(1, r0 - l0)));   // rider's place across the road
+    const pts = E.map(([y, l, r]) => [l + (r - l) * f0, y, r - l]);
+    c.save(); c.shadowColor = C.cyan; c.shadowBlur = 14; c.lineCap = 'round';
+    for (let i = 0; i < pts.length - 1; i++) {
+      const f = i / (pts.length - 1);
+      c.strokeStyle = `rgba(69,220,255,${(0.85 * (1 - f) + 0.1).toFixed(3)})`;
+      c.lineWidth = Math.min(10, Math.max(1.5, pts[i][2] * 0.025));
+      c.beginPath(); c.moveTo(pts[i][0], pts[i][1]); c.lineTo(pts[i + 1][0], pts[i + 1][1]); c.stroke();
+    }
+    const shift = Math.floor(S.travel * 2) % 4;
+    for (let i = 4 - shift; i < pts.length - 2; i += 4) {
+      const [u, v, rw] = pts[i], [u2, v2] = pts[i + 1];
+      const s = Math.min(22, Math.max(4, rw * 0.05)), ang = Math.atan2(v2 - v, u2 - u);
+      c.save(); c.translate(u, v); c.rotate(ang + Math.PI / 2);
+      c.strokeStyle = 'rgba(200,245,255,0.9)'; c.lineWidth = Math.max(1.5, s * 0.25);
+      c.beginPath(); c.moveTo(-s, s * 0.5); c.lineTo(0, -s * 0.2); c.lineTo(s, s * 0.5); c.stroke();
+      c.restore();
+    }
+    c.restore();
+  }
+  function renderRun() {
+    const [sx, sy] = scene._s;
+    ctx.setTransform(sx, 0, 0, sy, 0, 0);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    const m = R.meta, vid = R.video, lb = m.letterbox;
+    // the model space is the frame letterboxed to 640x384; the screen is exactly 2x that
+    if (vid.readyState >= 2) ctx.drawImage(vid, lb.pad[0] * 2, lb.pad[1] * 2, m.src_size[0] * lb.scale * 2, m.src_size[1] * lb.scale * 2);
+    const i = frameAt(vid.currentTime), fr = R.frames[i];
+    if (i !== R.idx) {                                     // new frame: log its CAN messages
+      R.idx = i;
+      for (const f of fr.can) S.canLines.push(`<span>${fr.t.toFixed(1).padStart(5, ' ')}</span> <span class="id">${f.id.slice(2)}</span> <span class="data">${f.data}</span> <span class="dec">${f.text}</span>`);
+      S.canLines = S.canLines.slice(-9);
+    }
+    const nx = R.frames[i + 1], span = nx ? nx.t - fr.t : 0;
+    const f = span > 0 && span < 0.5 ? Math.min(1, Math.max(0, (vid.currentTime - fr.t) / span)) : 0;
+    S.frame = Math.round(vid.currentTime * m.fps); S.lean = fr.lean;
+    const dets = runDets(lerpObjs(fr, nx, f)), E = edgesPx(lerpEdges(fr, nx, f));
+    const curve = { code: fr.curv[0], bend: fr.curv[1] };
+    const surf = fr.surf ? { code: fr.surf[0], conf: fr.surf[1] } : null;
+    const pulse = 1 + 0.12 * Math.sin(S.t * 4);
+    if (layer('l-grid')) drawRunGrid(ctx, E);
+    if (layer('l-trail')) drawRunTrail(ctx, E);
+    if (layer('l-rings')) [...dets].sort((p, q) => q.dist - p.dist).forEach(d => drawRing(ctx, d, pulse));
+    placed = []; tagRects = [];
+    const near = [...dets].sort((p, q) => (p.dist || 1e9) - (q.dist || 1e9));
+    if (layer('l-callouts')) near.forEach(d => drawCallout(ctx, d));
+    if (layer('l-boxes')) near.forEach(d => drawBox(ctx, d));
+    const top = dets.filter(d => d.alert).sort((p, q) => p.reach - q.reach)[0];
+    drawHud(ctx, top, curve);
+    return { dets, curve, surf };
+  }
+  function updateSeek() {
+    const vid = R.video, dur = vid.duration || R.meta.duration || 0;
+    if (!R.seeking && dur) $('seek').value = Math.round(vid.currentTime / dur * 1000);
+    $('seek-out').textContent = `${fmtT(vid.currentTime)} / ${fmtT(dur)}`;
+  }
+  function useGeometry(g) { HFOV = g.HFOV; F = g.F; V0 = g.V0; HC = g.HC; }
+  async function loadRun(name) {
+    const res = await fetch(`runs/${encodeURIComponent(name)}/frames.json`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`frames.json not found for ${name}`);
+    const js = await res.json(), m = js.meta;
+    R.meta = m; R.frames = js.frames; R.idx = -1; R.on = true;
+    // same camera assumptions the run was processed with (app/engines.py)
+    useGeometry({ HFOV: m.hfov, F: m.focal ? m.focal * 2 : (W / 2) / Math.tan(m.hfov * Math.PI / 360),
+                  V0: m.horizon_row != null ? m.horizon_row * 2 : m.horizon_frac * H, HC: m.camera_height });
+    S.kappa = 0; S.lean = null; S.canLines = [];
+    R.video.src = `runs/${encodeURIComponent(name)}/video.mp4`;
+    R.video.currentTime = 0;
+    R.video.play().catch(() => setPlaying(false));
+    $('seek-wrap').hidden = false;
+    const pill = $('pill'); pill.textContent = `Recorded run · ${m.engine} engine`; pill.classList.add('live');
+    $('note').textContent = `Recorded video, processed by app/process_video.py with the ${m.engine} engine at ${m.processed_fps} frames per second on a laptop CPU, then played back here at full speed. `
+      + (m.engine === 'baselines'
+        ? 'Distances are estimated from where each object meets the road (flat-road geometry, camera height '
+          + `${m.camera_height} m); surface type and lean need the combined model.`
+        : 'Distances come from the depth head; surface, lean and curvature from the combined model.')
+      + ' Time to reach a hazard uses the rider speed set above.';
+    try { history.replaceState(null, '', `?run=${encodeURIComponent(name)}`); } catch (e) {}
+  }
+  const SAMPLE_NOTE = $('note').textContent;
+  function loadSample() {
+    R.on = false; R.video.pause(); R.video.removeAttribute('src'); R.video.load();
+    useGeometry(SIM); S.lean = 0; S.canLines = [];
+    $('seek-wrap').hidden = true;
+    const pill = $('pill'); pill.textContent = 'Sample scene · simulated data'; pill.classList.remove('live');
+    $('note').textContent = SAMPLE_NOTE;
+    setPlaying(true);
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  }
+  async function listRuns() {
+    try {
+      const res = await fetch('runs/index.json', { cache: 'no-store' });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) { return []; }                              // opened as a file, or no runs yet
+  }
+
+  // ---------- Main loop ----------
+  function render() {
+    const [sx, sy] = scene._s;
+    ctx.setTransform(sx, 0, 0, sy, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const surf = surfaceAt(S.t), curve = curvature();
+    const dets = detections().map(danger);
+    // camera roll: the rider leans, so the whole picture (and what the model sees) tilts
+    const a = -S.lean * Math.PI / 180, k = 1 + Math.abs(Math.sin(a)) * 0.95;
+    ctx.save();
+    ctx.translate(W / 2, H / 2); ctx.rotate(a); ctx.scale(k, k); ctx.translate(-W / 2, -H / 2);
+    drawWorld(ctx, surf);
+    const pulse = 1 + 0.12 * Math.sin(S.t * 4);
+    if (layer('l-grid')) drawGrid(ctx);
+    if (layer('l-trail')) drawTrail(ctx);
+    const byFar = [...dets].sort((p, q) => q.dist - p.dist);
+    if (layer('l-rings')) byFar.forEach(d => drawRing(ctx, d, pulse));
+    placed = []; tagRects = [];
+    if (layer('l-callouts')) [...dets].sort((p, q) => p.dist - q.dist).forEach(d => drawCallout(ctx, d));
+    if (layer('l-boxes')) [...dets].sort((p, q) => p.dist - q.dist).forEach(d => drawBox(ctx, d));
+    ctx.restore();
+    const top = dets.filter(d => d.alert).sort((p, q) => p.reach - q.reach)[0];
+    drawHud(ctx, top, curve);
+    return { dets, curve, surf };
+  }
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    S.fpsAcc += dt; S.fpsN++;
+    if (S.fpsAcc > 0.5) { S.fps = S.fpsN / S.fpsAcc; S.fpsAcc = 0; S.fpsN = 0; }
+    let out;
+    if (R.on) {
+      if (!R.video.paused) { S.t += dt; S.travel += S.speedKmh / 3.6 * dt; }
+      out = renderRun(); updateSeek();
+    } else {
+      if (S.playing) { step(dt); S.frame++; }
+      out = render();
+      if (S.playing && S.t - S.canT >= 0.1) { S.canT = S.t; emitCan(out.dets, out.curve, out.surf); }
+    }
+    const { dets, curve, surf } = out;
+    drawMap(dets); drawLean();
+    if (now - S.uiT > 100) { S.uiT = now; updateUi(dets, curve, surf); }
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- Controls ----------
+  const playBtn = $('play');
+  const setPlaying = p => { S.playing = p; playBtn.textContent = p ? 'Pause' : 'Play'; };
+  playBtn.addEventListener('click', () => {
+    if (!R.on) return setPlaying(!S.playing);
+    if (R.video.paused) { if (R.video.ended) R.video.currentTime = 0; R.video.play(); } else R.video.pause();
+  });
+  R.video.addEventListener('play', () => setPlaying(true));
+  R.video.addEventListener('pause', () => setPlaying(false));
+  R.video.addEventListener('error', () => { $('note').textContent = 'The video for this run could not be played. Re-run app/process_video.py (it makes a browser-friendly copy; needs: pip install imageio-ffmpeg).'; });
+  const seek = $('seek');
+  seek.addEventListener('pointerdown', () => { R.seeking = true; });
+  seek.addEventListener('pointerup', () => { R.seeking = false; });
+  seek.addEventListener('input', () => { const d = R.video.duration || 0; if (d) R.video.currentTime = seek.value / 1000 * d; });
+  const sourceSel = $('source');
+  sourceSel.addEventListener('change', () => {
+    const name = sourceSel.value;
+    if (!name) return loadSample();
+    loadRun(name).catch(e => { $('note').textContent = `Could not load run "${name}": ${e.message}`; });
+  });
+  listRuns().then(runs => {
+    for (const r of runs) {
+      const o = document.createElement('option');
+      o.value = r.name; o.textContent = `${r.name} · ${r.engine} · ${fmtT(r.duration)}`;
+      sourceSel.appendChild(o);
+    }
+    // open the run named in the address, else the newest run; the sample stays in the list
+    const asked = new URLSearchParams(location.search).get('run');
+    const want = asked || (runs[0] && runs[0].name);
+    if (want && runs.some(r => r.name === want)) { sourceSel.value = want; sourceSel.dispatchEvent(new Event('change')); }
+  });
+  $('rider-speed').addEventListener('input', e => { S.speedKmh = +e.target.value; $('speed-out').textContent = `${S.speedKmh} km/h`; });
+  // Start a few seconds in so hazards are already in view
+  for (let i = 0; i < 60; i++) step(1 / 20);
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) setPlaying(false);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
