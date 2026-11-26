@@ -1,0 +1,5 @@
+interface: virtual
+channel: 0
+bitrate: 500000
+dbc_path: can/road_perception.dbc
+send_rate_hz: 10

@@ -97,3 +97,61 @@ def test_augment_with_dataset():
     for i in range(min(5, len(ds))):
         s = ds[i]
         check_sample(s)
+
+
+def test_vibration_augmentation():
+    """Verify vibration motion blur + shift keeps boxes, mask and depth in sync."""
+    from datasets.transforms import augment_multitask
+    import random
+
+    img = np.full((IMG_H, IMG_W, 3), 100, dtype=np.uint8)
+    boxes = np.array([[0.5, 0.5, 0.2, 0.2]], dtype=np.float32)
+    mask = np.zeros((IMG_H, IMG_W), dtype=np.uint8)
+    mask[100:200, 200:400] = 1
+    depth = np.zeros((IMG_H, IMG_W), dtype=np.float32)
+    depth[100:200, 200:400] = 20.0
+
+    rng = random.Random(123)
+    aug = augment_multitask(img, boxes=boxes, seg_mask=mask, depth=depth,
+                            p_flip=0.0, zoom_range=(1.0, 1.0), p_color=0.0, p_blur=0.0,
+                            p_vibration=1.0, rng=rng)
+
+    assert aug["image"].shape == (IMG_H, IMG_W, 3)
+    assert aug["seg_mask"].shape == (IMG_H, IMG_W)
+    assert aug["depth"].shape == (IMG_H, IMG_W)
+    assert len(aug["boxes"]) == 1
+
+    # Box center should move slightly (within +-8 px / width)
+    orig_cx, orig_cy = 0.5, 0.5
+    new_cx, new_cy = aug["boxes"][0, 0], aug["boxes"][0, 1]
+    assert abs(new_cx - orig_cx) <= (8.0 / IMG_W) + 1e-4
+    assert abs(new_cy - orig_cy) <= (8.0 / IMG_H) + 1e-4
+
+    # Mask and depth should have matching nonzero locations
+    mask_active = (aug["seg_mask"] == 1)
+    depth_active = (aug["depth"] == 20.0)
+    assert np.array_equal(mask_active, depth_active)
+
+
+def test_shaky_val_transform():
+    """Fixed-seed shaky validation transform produces deterministic vibration."""
+    from datasets.transforms import MultitaskAugmentor
+
+    t1 = MultitaskAugmentor.create_shaky_val_transform(seed=99)
+    t2 = MultitaskAugmentor.create_shaky_val_transform(seed=99)
+
+    sample = {
+        "image": np.full((IMG_H, IMG_W, 3), 120, dtype=np.uint8),
+        "boxes": np.array([[0.4, 0.4, 0.1, 0.1]], dtype=np.float32),
+        "classes": np.array([0], dtype=np.int64),
+        "mask": np.zeros((IMG_H, IMG_W), dtype=np.uint8),
+        "depth": np.zeros((IMG_H, IMG_W), dtype=np.float32),
+    }
+
+    out1 = t1(sample)
+    out2 = t2(sample)
+
+    assert np.array_equal(out1["image"], out2["image"])
+    assert np.array_equal(out1["boxes"], out2["boxes"])
+    assert np.array_equal(out1["seg_mask"], out2["seg_mask"])
+    assert np.array_equal(out1["depth"], out2["depth"])

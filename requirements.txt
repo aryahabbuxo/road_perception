@@ -4,6 +4,8 @@ onnx==1.23.2
 onnxruntime==1.31.1
 opencv-python==5.0.0.93
 pytest==9.2.0
+python-can
+cantools
 PyYAML==6.0.3
 timm==1.0.30
 torch==2.14.1

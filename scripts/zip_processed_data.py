@@ -19,11 +19,12 @@ for name in sorted(os.listdir(DATA_DIR)):
         for root, dirs, files in os.walk(folder):
             for file in files:
                 file_path = os.path.join(root, file)
-                # Archive relative to folder name (e.g. speedbump/images/...)
-                arcname = os.path.relpath(file_path, DATA_DIR)
+                # Archive relative to dataset folder (e.g. images/..., splits.json at root)
+                arcname = os.path.relpath(file_path, folder)
                 zf.write(file_path, arcname)
 
     size_mb = os.path.getsize(zip_path) / (1024 * 1024)
+    shutil.copy2(zip_path, f"{name}.zip")
     print(f"  Done: {name}.zip ({size_mb:.1f} MB)")
 
 print("\nAll dataset zip archives created in data_processed/zips/ ready for Drive upload!")

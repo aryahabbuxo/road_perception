@@ -146,10 +146,11 @@ def evaluate_detection(model, data_root="data_processed/speedbump", split="test"
                             [float(x1), float(y1), float(x2), float(y2), float(score), img_id]
                         )
 
-    # Compute AP per class
-    all_classes = sorted(set(list(class_gts.keys()) + list(class_detections.keys())))
+    # Compute AP per class over REPORTED_DET_CLASSES only
+    from datasets.contract import REPORTED_DET_CLASSES
+    reported_classes = sorted(set(REPORTED_DET_CLASSES) & set(list(class_gts.keys()) + list(class_detections.keys())))
     aps = {}
-    for c in all_classes:
+    for c in reported_classes:
         gts = class_gts.get(c, {})
         dets = class_detections.get(c, [])
         ap = compute_class_ap(dets, gts, iou_thresh=0.50)
@@ -163,6 +164,9 @@ def evaluate_detection(model, data_root="data_processed/speedbump", split="test"
         "mAP50_pothole": aps.get(0, 0.0) if not np.isnan(aps.get(0, float("nan"))) else 0.0,
         "mAP50_hump": aps.get(1, 0.0) if not np.isnan(aps.get(1, float("nan"))) else 0.0,
     }
+    for c in reported_classes:
+        if not np.isnan(aps.get(c, float("nan"))):
+            metrics[f"mAP50_cls{c}"] = aps[c]
     return metrics
 
 

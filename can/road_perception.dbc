@@ -1,0 +1,34 @@
+VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: SENSOR RECEIVER
+
+BO_ 256 OBJECT: 8 SENSOR
+ SG_ obj_index : 0|8@1+ (1,0) [0|7] "" RECEIVER
+ SG_ obj_class : 8|8@1+ (1,0) [0|5] "" RECEIVER
+ SG_ obj_distance : 16|16@1+ (0.1,0) [0|6553.5] "m" RECEIVER
+ SG_ obj_position : 32|8@1- (1,0) [-100|100] "%" RECEIVER
+ SG_ obj_confidence : 40|8@1+ (1,0) [0|100] "%" RECEIVER
+ SG_ obj_track_id : 48|8@1+ (1,0) [0|255] "" RECEIVER
+ SG_ obj_counter : 56|4@1+ (1,0) [0|15] "" RECEIVER
+
+BO_ 272 ROAD_STATE: 8 SENSOR
+ SG_ curvature_code : 0|8@1+ (1,0) [0|5] "" RECEIVER
+ SG_ bend_angle : 8|8@1- (1,0) [-128|127] "deg" RECEIVER
+ SG_ surface_type : 16|8@1+ (1,0) [0|7] "" RECEIVER
+ SG_ surface_conf : 24|8@1+ (1,0) [0|100] "%" RECEIVER
+ SG_ road_counter : 56|4@1+ (1,0) [0|15] "" RECEIVER
+
+BO_ 288 RIDER_STATE: 8 SENSOR
+ SG_ rider_lean : 0|8@1- (1,0) [-128|127] "deg" RECEIVER
+ SG_ pothole_severity : 8|8@1+ (1,0) [0|5] "" RECEIVER
+ SG_ rider_counter : 56|4@1+ (1,0) [0|15] "" RECEIVER
+
+BO_ 304 STATUS: 8 SENSOR
+ SG_ system_fps : 0|8@1+ (1,0) [0|255] "fps" RECEIVER
+ SG_ object_count : 8|8@1+ (1,0) [0|255] "" RECEIVER
+ SG_ degraded_flag : 16|8@1+ (1,0) [0|1] "" RECEIVER
+ SG_ status_counter : 56|4@1+ (1,0) [0|15] "" RECEIVER

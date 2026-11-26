@@ -58,6 +58,12 @@ class MultiTaskDataset(Dataset):
         self.has_det = os.path.isdir(os.path.join(root, "labels_det", split))
         self.has_seg = os.path.isdir(os.path.join(root, "masks", split))
         self.has_depth = os.path.isdir(os.path.join(root, "depth", split))
+        surface_path = os.path.join(root, "surface.json")
+        if os.path.exists(surface_path):
+            with open(surface_path) as f:
+                self.surface_labels = json.load(f)
+        else:
+            self.surface_labels = None
 
     def __len__(self):
         return len(self.stems)
@@ -79,6 +85,8 @@ class MultiTaskDataset(Dataset):
             sample["seg_mask"] = torch.from_numpy(a["mask"].astype(np.int64))
         if self.has_depth:
             sample["depth"] = torch.from_numpy(a["depth"].astype(np.float32))
+        if self.surface_labels is not None and stem in self.surface_labels:
+            sample["surface"] = torch.tensor(int(self.surface_labels[stem]), dtype=torch.int64)
         sample.update(has_det=self.has_det, has_seg=self.has_seg, has_depth=self.has_depth,
                       dataset=self.name, stem=stem)
         return sample

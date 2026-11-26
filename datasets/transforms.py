@@ -10,6 +10,25 @@ PAD_MASK = 255    # "ignore"
 PAD_DEPTH = 0     # "no value"
 
 
+def get_motion_blur_kernel(ksize, angle_deg):
+    """Generates a normalized motion blur kernel at a given angle in degrees."""
+    kernel = np.zeros((ksize, ksize), dtype=np.float32)
+    center = (ksize - 1) / 2.0
+    rad = np.deg2rad(angle_deg)
+    cos_a, sin_a = np.cos(rad), np.sin(rad)
+    for i in range(ksize):
+        offset = i - center
+        x = int(round(center + offset * cos_a))
+        y = int(round(center + offset * sin_a))
+        if 0 <= x < ksize and 0 <= y < ksize:
+            kernel[y, x] = 1.0
+    if kernel.sum() > 0:
+        kernel /= kernel.sum()
+    else:
+        kernel[int(center), int(center)] = 1.0
+    return kernel
+
+
 def letterbox(image, boxes=None, seg_mask=None, depth=None, size=(IMG_H, IMG_W)):
     """Resize to `size` (height, width) by padding, never stretching.
 
@@ -52,12 +71,14 @@ def letterbox(image, boxes=None, seg_mask=None, depth=None, size=(IMG_H, IMG_W))
 
 
 def augment_multitask(image, boxes=None, classes=None, seg_mask=None, depth=None,
-                      p_flip=0.5, zoom_range=(0.8, 1.2), p_color=0.5, p_blur=0.2, rng=None):
-    """Day 12 multitask augmentations:
+                      p_flip=0.5, zoom_range=(0.8, 1.2), p_color=0.5, p_blur=0.2,
+                      p_vibration=0.0, rng=None):
+    """Day 12 & mentor multitask augmentations:
     - Flip left-right
     - Zoom in/out 0.8-1.2x
     - Color jitter (brightness, contrast, saturation)
     - Blur
+    - Vibration: motion blur (5-15 px kernel) + random shift of up to +-8 px
 
     Boxes, road mask and distance map stay strictly in sync. No upside-down flips, no rotations.
     """
@@ -157,6 +178,38 @@ def augment_multitask(image, boxes=None, classes=None, seg_mask=None, depth=None
         ksize = rng.choice([3, 5])
         img = cv2.GaussianBlur(img, (ksize, ksize), 0)
 
+    # 5. Vibration (motion blur + random shift of +-8 px in sync across heads)
+    if rng.random() < p_vibration:
+        # 5a. Motion blur on image
+        ksize = rng.randint(5, 15)
+        angle = rng.uniform(0, 360)
+        kernel = get_motion_blur_kernel(ksize, angle)
+        img = cv2.filter2D(img, -1, kernel)
+
+        # 5b. Random shift of up to +-8 px
+        dx = rng.randint(-8, 8)
+        dy = rng.randint(-8, 8)
+        if dx != 0 or dy != 0:
+            M = np.float32([[1, 0, dx], [0, 1, dy]])
+            img = cv2.warpAffine(img, M, (w, h), borderValue=(PAD_IMAGE, PAD_IMAGE, PAD_IMAGE))
+            if m is not None:
+                m = cv2.warpAffine(m, M, (w, h), flags=cv2.INTER_NEAREST, borderValue=PAD_MASK)
+            if d is not None:
+                d = cv2.warpAffine(d, M, (w, h), flags=cv2.INTER_NEAREST, borderValue=PAD_DEPTH)
+            if b is not None and len(b) > 0:
+                cx = b[:, 0] + dx / w
+                cy = b[:, 1] + dy / h
+                bw = b[:, 2]
+                bh = b[:, 3]
+                x1 = np.clip(cx - bw / 2.0, 0.0, 1.0)
+                y1 = np.clip(cy - bh / 2.0, 0.0, 1.0)
+                x2 = np.clip(cx + bw / 2.0, 0.0, 1.0)
+                y2 = np.clip(cy + bh / 2.0, 0.0, 1.0)
+                valid_box = (x2 > x1 + 1e-4) & (y2 > y1 + 1e-4)
+                if cls is not None:
+                    cls = cls[valid_box]
+                b = np.stack([(x1 + x2) / 2.0, (y1 + y2) / 2.0, x2 - x1, y2 - y1], axis=1)[valid_box]
+
     return {
         "image": img,
         "boxes": b,
@@ -169,11 +222,13 @@ def augment_multitask(image, boxes=None, classes=None, seg_mask=None, depth=None
 class MultitaskAugmentor:
     """Callable transform object for MultiTaskDataset."""
 
-    def __init__(self, p_flip=0.5, zoom_range=(0.8, 1.2), p_color=0.5, p_blur=0.2, seed=None):
+    def __init__(self, p_flip=0.5, zoom_range=(0.8, 1.2), p_color=0.5, p_blur=0.2,
+                 p_vibration=0.0, seed=None):
         self.p_flip = p_flip
         self.zoom_range = zoom_range
         self.p_color = p_color
         self.p_blur = p_blur
+        self.p_vibration = p_vibration
         self.rng = random.Random(seed) if seed is not None else random.Random()
 
     def __call__(self, sample):
@@ -187,5 +242,12 @@ class MultitaskAugmentor:
             zoom_range=self.zoom_range,
             p_color=self.p_color,
             p_blur=self.p_blur,
+            p_vibration=self.p_vibration,
             rng=self.rng,
         )
+
+    @classmethod
+    def create_shaky_val_transform(cls, seed=42):
+        """Creates a fixed-seed vibration augmentor for building a shaky validation set."""
+        return cls(p_flip=0.0, zoom_range=(1.0, 1.0), p_color=0.0, p_blur=0.0,
+                   p_vibration=1.0, seed=seed)
