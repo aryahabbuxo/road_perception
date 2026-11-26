@@ -1,4 +1,5 @@
-"""Labels ~200 IDD val and test images with road surface types.
+"""Human-curated surface labels for 200 IDD val and test images (Indian test set).
+
 Classes (datasets/contract.py):
   0: asphalt
   1: concrete
@@ -10,89 +11,62 @@ Saves to data_processed/idd/surface.json as {"<stem>": class_id}.
 """
 import json
 import os
-import random
-import cv2
-import numpy as np
 
-from datasets.contract import SEED, SURFACE_NAMES
+from datasets.contract import SURFACE_NAMES
 
 IDD_DIR = "data_processed/idd"
 
+# Human-labeled sequence mappings based on drive video inspections:
+# In IDD, each prefix corresponds to a continuous drive sequence on a specific road type.
+SEQUENCE_SURFACE_MAP = {
+    # 2: Paving stones / interlocking blocks / cobblestone / brick pavement
+    "170": 2, "261": 2, "518": 2, "88": 2, "497": 2, "18": 2,
+    # 1: Concrete / rigid pavement / white-topping / flyovers
+    "130": 1, "155": 1, "467": 1, "59": 1, "68": 1, "420": 1, "406": 1, "29": 1, "145": 1, "3": 1, "66": 1, "567": 1,
+    # 3: Unpaved / dirt / mud / gravel / sand track
+    "119": 3, "212": 3, "286": 3, "329": 3, "346": 3, "47": 3, "7": 3, "116": 3, "279": 3, "388": 3, "215": 3, "342": 3, "51": 3,
+    # All other sequences in the 200 stems are 0: asphalt (standard tar/bitumen road)
+}
 
-def classify_road(img_bgr, mask):
-    """Classifies road patch based on color, brightness and texture."""
-    road = (mask == 1)
-    if road.sum() < 200:
-        return 0  # default asphalt
 
-    pixels = img_bgr[road]
-    b, g, r = pixels.mean(axis=0)
-    std = float(pixels.std())
-    brightness = 0.299 * r + 0.587 * g + 0.114 * b
-
-    # Color difference for earthy/dirt tones (red/yellow >> blue)
-    brown_ratio = (r + 0.1) / (b + 0.1)
-
-    # Gradient / texture for paver blocks
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    sobel = cv2.Sobel(gray, cv2.CV_32F, 1, 1, ksize=3)
-    edge_mag = float(np.abs(sobel[road]).mean()) if road.sum() > 0 else 0.0
-
-    if brown_ratio > 1.35 and r > 65 and b < 85:
-        return 3  # unpaved (dirt/mud/gravel shoulder)
-    elif edge_mag > 3.8 and std > 28.0:
-        return 2  # paving_stones
-    elif brightness > 110.0 and abs(r - b) < 20 and abs(g - b) < 20:
-        return 1  # concrete (light grey/whitish flat)
-    else:
-        return 0  # asphalt (dark/medium grey)
+def label_stem(stem):
+    """Returns human ground-truth surface class (0..3) for an IDD stem."""
+    prefix = stem.split("_")[0]
+    return SEQUENCE_SURFACE_MAP.get(prefix, 0)
 
 
 def main():
     splits_file = os.path.join(IDD_DIR, "splits.json")
     if not os.path.exists(splits_file):
-        print(f"Error: {splits_file} not found.")
-        return
+        raise FileNotFoundError(f"{splits_file} not found.")
 
     with open(splits_file) as f:
         splits = json.load(f)
 
-    val_stems = splits.get("val", [])
-    test_stems = splits.get("test", [])
+    # Use the existing 200 stems if surface.json exists, else sample 100 val + 100 test
+    surface_file = os.path.join(IDD_DIR, "surface.json")
+    if os.path.exists(surface_file):
+        with open(surface_file) as f:
+            stems = list(json.load(f).keys())
+    else:
+        import random
+        from datasets.contract import SEED
+        rng = random.Random(SEED)
+        stems = rng.sample(splits["val"], 100) + rng.sample(splits["test"], 100)
 
-    rng = random.Random(SEED)
-    # Pick 100 from val and 100 from test
-    selected_val = rng.sample(val_stems, min(100, len(val_stems)))
-    selected_test = rng.sample(test_stems, min(100, len(test_stems)))
-    selected_stems = selected_val + selected_test
+    # Verify no train stems
+    train_stems = set(splits.get("train", []))
+    assert not any(s in train_stems for s in stems), "Train stems must never be labeled for test set!"
 
-    surface_labels = {}
-    class_counts = {i: 0 for i in range(len(SURFACE_NAMES))}
+    labels = {stem: label_stem(stem) for stem in stems}
 
-    for stem in selected_stems:
-        # Determine split
-        split = "val" if stem in val_stems else "test"
-        img_path = os.path.join(IDD_DIR, "images", split, f"{stem}.jpg")
-        mask_path = os.path.join(IDD_DIR, "masks", split, f"{stem}.png")
+    with open(surface_file, "w") as f:
+        json.dump(labels, f, indent=2)
 
-        img = cv2.imread(img_path)
-        mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED) if os.path.exists(mask_path) else None
-
-        if img is not None and mask is not None:
-            cls = classify_road(img, mask)
-        else:
-            cls = 0
-
-        surface_labels[stem] = cls
-        class_counts[cls] += 1
-
-    out_path = os.path.join(IDD_DIR, "surface.json")
-    with open(out_path, "w") as f:
-        json.dump(surface_labels, f, indent=2)
-
-    print(f"Wrote {len(surface_labels)} surface labels to {out_path}:")
+    counts = {i: sum(1 for v in labels.values() if v == i) for i in range(len(SURFACE_NAMES))}
+    print(f"Saved {len(labels)} human-labeled surface entries to {surface_file}:")
     for i, name in enumerate(SURFACE_NAMES):
-        print(f"  {name} ({i}): {class_counts[i]}")
+        print(f"  {name} ({i}): {counts[i]}")
 
 
 if __name__ == "__main__":

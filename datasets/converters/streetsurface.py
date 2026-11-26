@@ -99,9 +99,11 @@ def generate_synthetic_samples(out_root, count_per_class=30):
 
 def convert_dataset(raw_dir, csv_file, out_root):
     if not os.path.exists(csv_file) or not os.path.exists(raw_dir):
-        print(f"StreetSurfaceVis raw files not found at {raw_dir} / {csv_file}. Generating representative dataset...")
-        generate_synthetic_samples(out_root)
-        return
+        raise FileNotFoundError(
+            f"StreetSurfaceVis raw files not found at raw_dir='{raw_dir}' or csv_file='{csv_file}'. "
+            "Please download the 1024px version from Zenodo (DOI: 10.5281/zenodo.11449977) "
+            "and pass --raw-dir and --csv."
+        )
 
     records = []
     with open(csv_file, "r", encoding="utf-8") as f:
@@ -114,9 +116,7 @@ def convert_dataset(raw_dir, csv_file, out_root):
                 records.append((img_name, cls_id))
 
     if not records:
-        print("No valid records found in CSV. Generating representative dataset...")
-        generate_synthetic_samples(out_root)
-        return
+        raise ValueError(f"No valid records matching surface classes found in CSV '{csv_file}'.")
 
     rng = random.Random(SEED)
     rng.shuffle(records)

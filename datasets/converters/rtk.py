@@ -88,9 +88,10 @@ def generate_synthetic_rtk(out_root, num_seqs=12, frames_per_seq=20):
 
 def convert_rtk(raw_dir, out_root):
     if not os.path.exists(raw_dir):
-        print(f"RTK raw directory {raw_dir} not found. Generating representative dataset...")
-        generate_synthetic_rtk(out_root)
-        return
+        raise FileNotFoundError(
+            f"RTK raw directory not found at '{raw_dir}'. "
+            "Please download the RTK dataset from Mendeley Data and pass --raw-dir."
+        )
 
     # Find sequences and frames
     seq_frames = {}
@@ -107,9 +108,7 @@ def convert_rtk(raw_dir, out_root):
             seq_frames.setdefault(seq_name, []).append((path, f))
 
     if not seq_frames:
-        print("No image frames found in RTK raw directory. Generating representative dataset...")
-        generate_synthetic_rtk(out_root)
-        return
+        raise ValueError(f"No image frames found in RTK raw directory '{raw_dir}'.")
 
     rng = random.Random(SEED)
     all_seqs = sorted(seq_frames.keys())
