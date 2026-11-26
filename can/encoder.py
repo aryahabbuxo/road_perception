@@ -47,7 +47,7 @@ class CANEncoder:
         self.msg_status = self.db.get_message_by_name("STATUS")
 
     def encode_tracks(self, tracks, curvature_code=0, bend_deg=0, surface=None,
-                      lean=0.0, fps=30, counter=0, degraded=False):
+                      lean=None, fps=30, counter=0, degraded=False, periodic_status=False):
         """Encodes tracking dictionaries into raw CAN payloads.
         Returns list of dicts: {"id": int, "data": bytes, "name": str}
         """
@@ -104,7 +104,7 @@ class CANEncoder:
         payloads.append({"id": 0x110, "data": data_road, "name": "ROAD_STATE"})
 
         # 0x120 RIDER_STATE
-        lean_deg = 0 if lean is None else int(round(lean))
+        lean_deg = -128 if lean is None else int(round(lean))
         lean_deg = max(-128, min(127, lean_deg))
         # Pothole severity
         pothole_sevs = [t.get("severity", 0) or 0 for t in tracks if t.get("cls") == 0 and 0 < t.get("distance", 0) <= 30]
@@ -117,13 +117,14 @@ class CANEncoder:
         payloads.append({"id": 0x120, "data": data_rider, "name": "RIDER_STATE"})
 
         # 0x130 STATUS
-        data_status = self.msg_status.encode({
-            "system_fps": max(0, min(255, int(round(fps)))),
-            "object_count": min(255, len(tracks)),
-            "degraded_flag": 1 if degraded else 0,
-            "status_counter": k,
-        })
-        payloads.append({"id": 0x130, "data": data_status, "name": "STATUS"})
+        if not periodic_status or (k % 5 == 0):
+            data_status = self.msg_status.encode({
+                "system_fps": max(0, min(255, int(round(fps)))),
+                "object_count": min(255, len(tracks)),
+                "degraded_flag": 1 if degraded else 0,
+                "status_counter": k,
+            })
+            payloads.append({"id": 0x130, "data": data_status, "name": "STATUS"})
 
         return payloads
 
@@ -200,6 +201,7 @@ def encode_frame(tracks, curvature_code, bend_deg, surface, lean, fps, counter, 
         fps=fps,
         counter=counter,
         degraded=degraded,
+        periodic_status=True,
     )
 
     out = []
@@ -213,7 +215,7 @@ def encode_frame(tracks, curvature_code, bend_deg, surface, lean, fps, counter, 
 
         if msg_name == "OBJECT":
             cls_name = SHORT.get(decoded["obj_class"], f"c{decoded['obj_class']}")
-            dist_str = f"{decoded['obj_distance']:.1f}m" if decoded['obj_distance'] > 0 else "?m"
+            dist_str = f"{decoded['obj_distance']:.0f}m" if decoded['obj_distance'] > 0 else "?m"
             text = f"{cls_name} {dist_str}"
         elif msg_name == "ROAD_STATE":
             c_code = decoded["curvature_code"]
@@ -224,7 +226,8 @@ def encode_frame(tracks, curvature_code, bend_deg, surface, lean, fps, counter, 
         elif msg_name == "RIDER_STATE":
             l_val = decoded["rider_lean"]
             sev = decoded["pothole_severity"]
-            text = f"lean {l_val:+.0f}° L{sev}"
+            l_str = "-" if l_val == -128 else f"{l_val:.0f}°"
+            text = f"lean {l_str} L{sev}"
         else:
             text = f"{decoded['object_count']} obj {'DEGRADED' if decoded['degraded_flag'] else 'ok'}"
 
